@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    ".fantomasignore": "ignore",
+    "*.html.erb": "erb",
+    "stdio.h": "c"
+  }
+}
