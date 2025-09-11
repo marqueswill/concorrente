@@ -32,15 +32,18 @@ void *macacoX(void *a) {
             // Ponte não tem macacos Y, lado oposto está bloqueado, gorila não quer passar, quem passou por último foi o grupo Y
             // Eu não preciso controlar quem passa, só quem passou por último
             if (num_macacosY == 0 && ultimo_a_passar == 'Y' && golira_quer_passar == 0 && lado_macacosX == lado_aberto && jare_na_ponte == 0) {
-                num_macacosX++;  // O controle do último lado aberto faz com que as threads X e Y se alternem, evitando que um lado fique preso esperando o outro acabar. Funciona por conta da contagem de macacos
-                while (1) {
-                    if (num_macacosX == 10)  // Espera todos os macacos X começarem passar, chance de condição de corrida aqui
-                        break;
-                    pthread_mutex_unlock(&lock_corda);  // Libero a corda para os macacos passarem
-                }
+                num_macacosX++;                     // O controle do último lado aberto faz com que as threads X e Y se alternem, evitando que um lado fique preso esperando o outro acabar. Funciona por conta da contagem de macacos
+                pthread_mutex_unlock(&lock_corda);  // Libera pra geral que tava esperando
+                break;
 
-                ultimo_a_passar = 'X';
-                break;  // Sai do loop, agora as trheads X podem continuar
+                // while (1) {
+                //     if (num_macacosX == 10)  // Espera todos os macacos X começarem passar, chance de condição de corrida aqui
+                //         break;
+                //     pthread_mutex_unlock(&lock_corda);  // Libero a corda para os macacos passarem
+                // }
+
+                // ultimo_a_passar = 'X';
+                // break;  // Sai do loop, agora as trheads X podem continuar
             }
             pthread_mutex_unlock(&lock_corda);
             sleep(1);
@@ -54,14 +57,27 @@ void *macacoX(void *a) {
         sleep(1);
 
         // Sai da corda
-        pthread_mutex_lock(&lock_corda);
+        pthread_mutex_lock(&lock_corda);  // protege num_macacosX
         num_macacosX--;
         printf("Macaco %02dX saiu da corda. Macacos X: %02d. Macacos Y: %02d\n", i, num_macacosX, num_macacosY);
         if (num_macacosX == 0) {
             lado_aberto = !lado_aberto;      // Depois que todos passarem, lado A é bloqueado
             lado_macacosX = !lado_macacosX;  // Inverte o lado
-            printf("Quem passou por último: %c, X:%d, Y:%d, Aberto:%d\n", ultimo_a_passar, lado_macacosX, lado_macacosY, lado_aberto);
+            ultimo_a_passar = 'X';
+            printf("Quem passou por último: %c, X:%s, Y:%s, Aberto:%s\n",
+                   ultimo_a_passar,
+                   lado_macacosX == 0 ? "A" : "B",
+                   lado_macacosY == 0 ? "A" : "B",
+                   lado_aberto == 0 ? "A" : "B");
+        } else {
+            // printf("Esperando os X\n");
+            pthread_mutex_unlock(&lock_corda);
+            while (num_macacosX > 0) {
+                sleep(1);
+            }
+            ultimo_a_passar = 'X';  // Só pra garantir
         }
+
         pthread_mutex_unlock(&lock_corda);
 
         sleep(1);  // Esperar um pouco do outro lado pra não dar ruim
@@ -80,15 +96,18 @@ void *macacoY(void *a) {
             // Eu não preciso controlar quem passa, só quem passou por último
 
             if (num_macacosX == 0 && ultimo_a_passar == 'X' && golira_quer_passar == 0 && lado_macacosY == lado_aberto && jare_na_ponte == 0) {
-                num_macacosY++;  // O controle do último lado aberto faz com que as threads X e Y se alternem, evitando que um lado fique preso esperando o outro acabar. Funciona por conta da contagem de macacos
-                while (1) {
-                    if (num_macacosY == 10)  // Espera todos os macacos X começarem passar, chance de condição de corrida aqui
-                        break;
-                    pthread_mutex_unlock(&lock_corda);  // Libero a corda para os macacos passarem
-                }
+                num_macacosY++;                     // O controle do último lado aberto faz com que as threads X e Y se alternem, evitando que um lado fique preso esperando o outro acabar. Funciona por conta da contagem de macacos
+                pthread_mutex_unlock(&lock_corda);  // Libera pra geral que tava esperando
+                break;
 
-                ultimo_a_passar = 'Y';
-                break;  // Sai do loop, agora as trheads X podem continuar
+                // while (1) {
+                //     if (num_macacosY == 10)  // Espera todos os macacos X começarem passar, chance de condição de corrida aqui
+                //         break;
+                //     pthread_mutex_unlock(&lock_corda);  // Libero a corda para os macacos passarem
+                // }
+
+                // ultimo_a_passar = 'Y';
+                // break;  // Sai do loop, agora as trheads X podem continuar
             }
             pthread_mutex_unlock(&lock_corda);
             sleep(1);
@@ -108,8 +127,21 @@ void *macacoY(void *a) {
         if (num_macacosY == 0) {
             lado_aberto = !lado_aberto;  // Depois que todos passarem, lado A é bloqueado
             lado_macacosY = !lado_macacosY;
-            printf("Quem passou por último: %c, X:%d, Y:%d, Aberto:%d\n", ultimo_a_passar, lado_macacosX, lado_macacosY, lado_aberto);
+            ultimo_a_passar = 'Y';
+            printf("Quem passou por último: %c, X:%s, Y:%s, Aberto:%s\n",
+                   ultimo_a_passar,
+                   lado_macacosX == 0 ? "A" : "B",
+                   lado_macacosY == 0 ? "A" : "B",
+                   lado_aberto == 0 ? "A" : "B");
+        } else {
+            // printf("Esperando os Y\n");
+            pthread_mutex_unlock(&lock_corda);  // Deixa os resto continuar na corda
+            while (num_macacosY > 0) {
+                sleep(1);
+            }
+            ultimo_a_passar = 'Y';  // Só pra garantir
         }
+
         pthread_mutex_unlock(&lock_corda);
 
         sleep(1);  // Esperar um pouco do outro lado pra não dar ruim
@@ -164,7 +196,7 @@ void *jagaré(void *a) {
 int main(int argc, char *argv[]) {
     pthread_t j;
     pthread_create(&j, NULL, &jagaré, NULL);
-  
+
     pthread_t g;
     pthread_create(&g, NULL, &golira, NULL);
 
