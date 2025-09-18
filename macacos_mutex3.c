@@ -31,19 +31,10 @@ void *macacoX(void *a) {
             // Macaco X pode passar se:
             // Ponte não tem macacos Y, lado oposto está bloqueado, gorila não quer passar, quem passou por último foi o grupo Y
             // Eu não preciso controlar quem passa, só quem passou por último
-            if (num_macacosY == 0 && ultimo_a_passar == 'Y' && golira_quer_passar == 0 && lado_macacosX == lado_aberto && jare_na_ponte == 0) {
+            if ((num_macacosX == 0 && num_macacosY == 0) && golira_quer_passar == 0 && lado_macacosX == lado_aberto && jare_na_ponte == 0) {
                 num_macacosX++;                     // O controle do último lado aberto faz com que as threads X e Y se alternem, evitando que um lado fique preso esperando o outro acabar. Funciona por conta da contagem de macacos
                 pthread_mutex_unlock(&lock_corda);  // Libera pra geral que tava esperando
                 break;
-
-                // while (1) {
-                //     if (num_macacosX == 10)  // Espera todos os macacos X começarem passar, chance de condição de corrida aqui
-                //         break;
-                //     pthread_mutex_unlock(&lock_corda);  // Libero a corda para os macacos passarem
-                // }
-
-                // ultimo_a_passar = 'X';
-                // break;  // Sai do loop, agora as trheads X podem continuar
             }
             pthread_mutex_unlock(&lock_corda);
             sleep(1);
@@ -91,23 +82,12 @@ void *macacoY(void *a) {
 
         while (1) {
             pthread_mutex_lock(&lock_corda);  // Loop de espera para entrar na corda, as threads ficam bloqueando e desbloqueando em loop
-            // Macaco X pode passar se:
-            // Ponte não tem macacos Y, lado oposto está bloqueado, gorila não quer passar, quem passou por último foi o grupo Y
-            // Eu não preciso controlar quem passa, só quem passou por último
 
-            if (num_macacosX == 0 && ultimo_a_passar == 'X' && golira_quer_passar == 0 && lado_macacosY == lado_aberto && jare_na_ponte == 0) {
+            if ((num_macacosX == 0 && num_macacosY == 0) && golira_quer_passar == 0 && lado_macacosY == lado_aberto && jare_na_ponte == 0) {
                 num_macacosY++;                     // O controle do último lado aberto faz com que as threads X e Y se alternem, evitando que um lado fique preso esperando o outro acabar. Funciona por conta da contagem de macacos
                 pthread_mutex_unlock(&lock_corda);  // Libera pra geral que tava esperando
                 break;
 
-                // while (1) {
-                //     if (num_macacosY == 10)  // Espera todos os macacos X começarem passar, chance de condição de corrida aqui
-                //         break;
-                //     pthread_mutex_unlock(&lock_corda);  // Libero a corda para os macacos passarem
-                // }
-
-                // ultimo_a_passar = 'Y';
-                // break;  // Sai do loop, agora as trheads X podem continuar
             }
             pthread_mutex_unlock(&lock_corda);
             sleep(1);
