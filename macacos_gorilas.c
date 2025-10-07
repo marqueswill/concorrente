@@ -83,34 +83,66 @@ char *argv[];
 
 void *macacoA(void *a) {
     int i = *((int *)a);
+    int lado_atual = 0;
     while (1) {
         sleep(rand() % (i + 1));
         pthread_mutex_lock(&mutex);
-        maQuer++;
-        // Espero se não for o turno do lado a e se tem macaco B ou gorila na corda
+
+        if (lado_atual == 0)
+            maQuer++;
+        else
+            mbQuer++;
+
+        // Espero se não for o turno do lado em que ele está e se tem macaco do lado B ou gorila na corda
         // Ou se algum gorila quer passar, pq eles tem prioridade
-        while (turno != 0 || mB > 0 || gA > 0 || gB > 0 || gaQuer || gbQuer) {
+        while (turno != lado_atual || (lado_atual == 0 && mB > 0) || (lado_atual == 1 && mA > 0) || gA > 0 || gB > 0 || gaQuer || gbQuer) {
             pthread_cond_wait(&ma_cond, &mutex);
         }
-        maQuer--;
-        mA++;
-        if (mbQuer > 0) {  // Se os macacos do lado B querem passar, o próximo turno é deles
-            turno = 1;
+
+        if (lado_atual == 0) {
+            maQuer--;          // Paro de avisar que quero passar pro outro lado
+            mA++;              // Macaco passando de A para B
+            if (mbQuer > 0) {  // Se os macacos do lado B querem passar, o próximo turno é deles
+                turno = 1;
+            }
+        } else {
+            mbQuer--;
+            mB++;
+            if (maQuer > 0) {  // Se os macacos do lado A querem passar, o próximo turno é deles
+                turno = 0;
+            }
         }
+
         pthread_mutex_unlock(&mutex);
 
-        printf("Macaco %d passado de A para B \n", i);
+        if (lado_atual == 0)
+            printf("Macaco %dA passado de A para B \n", i);
+        else
+            printf("Macaco %dA passado de B para A \n", i);
+
         sleep(1);
 
         pthread_mutex_lock(&mutex);
-        mA--;
-        printf("Macaco %d terminou de passar de A para B; num: %d\n", i, mA);
-        if (mA == 0) {
+
+        if (lado_atual == 0) {
+            printf("Macaco %dA terminou de passar de A para B; num: %d\n", i, mA);
+            mA--;
+        } else {
+            printf("Macaco %dA terminou de passar de B para A; num: %d\n", i, mA);
+            mB--;
+        }
+
+        lado_atual = !lado_atual;  // Inverte o lado que o macaco está (variável local)
+
+        // Se ele passou de A para B e não há macacos indo de A para B
+        // Se ele passou de B para A e não há macacos indo de B para A
+        if ((lado_atual == 1 && mA == 0) || (lado_atual == 0 && mB == 0)) {
             printf("\nCORDA LIVRE\n\n");
             pthread_cond_broadcast(&mb_cond);
             pthread_cond_signal(&ga_cond);
             pthread_cond_signal(&gb_cond);
         }
+
         pthread_mutex_unlock(&mutex);
     }
     pthread_exit(0);
@@ -118,27 +150,56 @@ void *macacoA(void *a) {
 
 void *macacoB(void *a) {
     int i = *((int *)a);
+    int lado_atual = 1;
     while (1) {
         sleep(rand() % (i + 1));
         pthread_mutex_lock(&mutex);
-        mbQuer++;
-        while (turno != 1 || mA > 0 || gA > 0 || gB > 0 || gaQuer || gbQuer) {
+
+        if (lado_atual == 0)
+            maQuer++;
+        else
+            mbQuer++;
+
+        while (turno != lado_atual || (lado_atual == 0 && mB > 0) || (lado_atual == 1 && mA > 0) || gA > 0 || gB > 0 || gaQuer || gbQuer) {
             pthread_cond_wait(&mb_cond, &mutex);
         }
-        mbQuer--;
-        mB++;
-        if (maQuer > 0) {
-            turno = 0;
+
+        if (lado_atual == 0) {
+            maQuer--;          // Paro de avisar que quero passar pro outro lado
+            mA++;              // Macaco passando de A para B
+            if (mbQuer > 0) {  // Se os macacos do lado B querem passar, o próximo turno é deles
+                turno = 1;
+            }
+        } else {
+            mbQuer--;
+            mB++;
+            if (maQuer > 0) {  // Se os macacos do lado A querem passar, o próximo turno é deles
+                turno = 0;
+            }
         }
+
         pthread_mutex_unlock(&mutex);
 
-        printf("Macaco %d passado de B para A \n", i);
+        if (lado_atual == 0)
+            printf("Macaco %dB passado de A para B \n", i);
+        else
+            printf("Macaco %dB passado de B para A \n", i);
+
         sleep(1);
 
         pthread_mutex_lock(&mutex);
-        mB--;
-        printf("Macaco %d terminou de passar de B para A; num: %d\n", i, mB);
-        if (mB == 0) {
+
+        if (lado_atual == 0) {
+            printf("Macaco %dB terminou de passar de A para B; num: %d\n", i, mA);
+            mA--;
+        } else {
+            printf("Macaco %dB terminou de passar de B para A; num: %d\n", i, mA);
+            mB--;
+        }
+
+        lado_atual = !lado_atual;
+
+        if ((lado_atual == 1 && mA == 0) || (lado_atual == 0 && mB == 0)) {
             printf("\nCORDA LIVRE\n\n");
             pthread_cond_broadcast(&ma_cond);
             pthread_cond_signal(&ga_cond);
@@ -151,25 +212,49 @@ void *macacoB(void *a) {
 
 void *gorilaA(void *a) {
     int i = *((int *)a);
+    int lado_atual = 0;
     while (1) {
-        sleep(rand() % (i + 1) + 2);
+        sleep(rand() % (i + 1) + 10);
         pthread_mutex_lock(&mutex);
-        gaQuer++;
+
+        if (lado_atual == 0)
+            gaQuer++;
+        else
+            gbQuer++;
+
         if (gaQuer || gbQuer)
-          printf("\nEU GORILA %d PASSAR!!!!!\n\n",i);
+            printf("EU GORILA %dA PASSAR!!!!!\n", i);
         while (mA > 0 || mB > 0 || gA > 0 || gB > 0) {
             pthread_cond_wait(&ga_cond, &mutex);
         }
-        gaQuer--;
-        gA++;
+
+        if (lado_atual == 0) {
+            gaQuer--;
+            gA++;
+        } else {
+            gbQuer--;
+            gB++;
+        }
+
         pthread_mutex_unlock(&mutex);
 
-        printf("GORILA %d passado de A para B \n", i);
+        if (lado_atual == 0)
+            printf("GORILA %dA passado de A para B \n", i);
+        else
+            printf("GORILA %dA passado de B para A \n", i);
+
         sleep(5);
 
         pthread_mutex_lock(&mutex);
-        gA--;
-        printf("GORILA %d terminou de passar de A para B; num: %d\n", i, gA);
+
+        if (lado_atual == 0) {
+            gA--;
+            printf("GORILA %dA terminou de passar de A para B; num: %d\n", i, gA);
+        } else {
+            gB--;
+            printf("GORILA %dA terminou de passar de B para A; num: %d\n", i, gA);
+        }
+        lado_atual = !lado_atual;
         printf("\nCORDA LIVRE\n\n");
         pthread_cond_broadcast(&ma_cond);
         pthread_cond_broadcast(&mb_cond);
@@ -182,25 +267,53 @@ void *gorilaA(void *a) {
 
 void *gorilaB(void *a) {
     int i = *((int *)a);
+    int lado_atual = 1;
+
     while (1) {
         sleep(rand() % (i + 1) + 10);
         pthread_mutex_lock(&mutex);
-        gbQuer++;
+
+        if (lado_atual == 0)
+            gaQuer++;
+        else
+            gbQuer++;
+
         if (gaQuer || gbQuer)
-          printf("\nEU GORILA %d PASSAR!!!!!\n\n",i);
+            printf("EU GORILA %dB PASSAR!!!!!\n", i);
         while (mA > 0 || mB > 0 || gA > 0 || gB > 0) {
             pthread_cond_wait(&gb_cond, &mutex);
         }
-        gbQuer--;
-        gB++;
+
+        if (lado_atual == 0) {
+            gaQuer--;
+            gA++;
+        } else {
+            gbQuer--;
+            gB++;
+        }
+
         pthread_mutex_unlock(&mutex);
 
-        printf("GORILA %d passado de B para A \n", i);
+        if (lado_atual == 0)
+            printf("GORILA %dB passado de A para B \n", i);
+        else
+            printf("GORILA %dB passado de B para A \n", i);
+
         sleep(5);
 
         pthread_mutex_lock(&mutex);
-        gB--;
-        printf("GORILA %d terminou de passar de B para A; num: %d\n", i, gB);
+
+
+        if (lado_atual == 0) {
+            gA--;
+            printf("GORILA %dB terminou de passar de A para B; num: %d\n", i, gA);
+        } else {
+            gB--;
+            printf("GORILA %dB terminou de passar de B para A; num: %d\n", i, gA);
+        }
+        lado_atual = !lado_atual;
+
+
         printf("\nCORDA LIVRE\n\n");
         pthread_cond_broadcast(&ma_cond);
         pthread_cond_broadcast(&mb_cond);
