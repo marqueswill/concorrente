@@ -1,0 +1,55 @@
+Penguin Diner
+ O restaurante tem somente uma garçonete e um cozinheiro
+
+
+Garçom:
+ Responsável por levar os clientes à mesa
+ Anota o pedido do cliente no tablet 
+ Limpa a mesa/recolhe a gorjeta
+ Não pode colocar o pedido retirado do balcão de volta, mas pode jogá-lo fora
+    -> restrição para que não fique estocando comida no balcão
+
+ Precisa obter uma quantidade mínima de gorjeta pra não ser demitida
+ O tempo para a garçonete realizar cada tarefa precisa considerar a distância de deslocamento, 
+  levando em conta que:  
+    -> porta fica no início
+    -> mesas ficam em fila
+    -> balcão fica no final
+    ex: 
+        mapa = [porta, mesa1, mesa2, ..., mesaN, balcão]
+        tempo_tarefa = tempo_acao + tempo_deslocamento
+        
+ex: garçonete pegou pedido no balcão, levou até a mesa 3. Aqui ela pode anotar o pedido da mesa 4, limpar a mesa 2 ou deixar um cliente entrar (0)
+
+Cozinheiro:
+    prepara os pratos na ordem que são pedidos
+    coloca o prato preparado no balcão
+
+Cliente:
+    Pode ser um cliente ou um casal -> casal faz dois pedidos ao mesmo tempo
+    Esperam na fila até serem direcionados
+    Ao sentarem, começam a ler o cardápio
+    Após decidirem, levantam a mão para a garçonete
+    Aguardam até a garçonete trazer o pedido
+    Após comerem, deixam a gorjeta na mesa
+
+    Putômetro 
+     -> quanto menor, maior a gorjeta com base no prato escolhido
+        -> começa a contar na fila
+        -> se chegar ao máximo, cliente vai embora
+        -> cada cliente tem um putômetro máximo diferente (calmo, normal, esquentado)
+        -> se for um casal, se um ficar com raiva ambos vão embora, mesmo que um deles tenha comido
+
+Balcão:
+  Só pode receber pratos do cozinheiro
+  
+Objetivo:
+    Gerenciar a ordem com que a garçonete realiza suas tarefas, de modo que:
+        1) No máximo 3 clientes vão embora
+        2) Ela consiga bater a meta de gorjeta
+        3) Ela consiga o máximo possível de gorjeta? er
+
+Problema:
+    Compartilhamento de recursos (mesas e balcão)
+    Escalonamento de prioridades
+    
