@@ -7,8 +7,9 @@
 
 void* show_id(void* arg) {
     int id = *((int*)arg);
+    free(arg);
     printf("Criou um pthread com id = %d, %lu \n", id, pthread_self());
-    pthread_exit(0);
+    pthread_exit(0);    
 }
 
 int main() {
@@ -16,9 +17,9 @@ int main() {
     int i;
     int* id;
     for (i = 0; i < N; i++) {
-        id = (int*)malloc(sizeof(int));
-        *id = i;
-        pthread_create(&a[i], NULL, show_id, (void*)(id));
+        id = (int*)malloc(sizeof(int)); // Cria um ponteiro para um inteiro na memória (4bytes)
+        *id = i; // Atribui o valor à memória
+        pthread_create(&a[i], NULL, show_id, (void*)(id)); // Passa o id como ponteiro
     }
 
     for (i = 0; i < N; i++) {
