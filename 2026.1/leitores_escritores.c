@@ -46,17 +46,17 @@ int main() {
 void* reader(void* arg) {
     int i = *((int*)arg);
     while (TRUE) {
-        pthread_mutex_lock(&lock_nl);
+        pthread_mutex_lock(&lock_nl); 
         num_leitores++;
         if (num_leitores == 1) {
             pthread_mutex_lock(&lock_bd);  // Primeiro leitor bloqueia escritores
         }
-        pthread_mutex_unlock(&lock_nl);
+        pthread_mutex_unlock(&lock_nl);  
 
-        read_data_base(i);
+        read_data_base(i); // É possível várias leituras simultâneas
 
         pthread_mutex_lock(&lock_nl);
-        num_leitores--;
+        num_leitores--; // Sai um por vez
         if (num_leitores == 0) {
             pthread_mutex_unlock(&lock_bd);  // Último leitor libera escritores
         }
@@ -64,7 +64,7 @@ void* reader(void* arg) {
         use_data_read(i);
         // Se for fazer usando um timer, eu crio uma variável e verifico se passou o tempo
         // Se sim, eu começo a travar as threads de leitores, até que um escritor escreva e libere os leitores dnv
-        pthread_mutex_lock(&lock_priority);  // Dá prioridade para escritores -> Sempre que a operação de leitura é feita, ele vai esperar até que um escritor permita a próxima leitura
+        pthread_mutex_lock(&lock_priority);  // Dá prioridade para escritores -> Sempre que a operação de leitura é feita, ela vai esperar até que um escritor permita a próxima leitura
     }
     pthread_exit(0);
 }
@@ -85,12 +85,12 @@ void* writer(void* arg) {
 }
 
 void read_data_base(int i) {
-    printf("Leitor %d está lendo os dados! Número de leitores: %d\n", i, num_leitores);
+    printf("Leitor   %d está lendo os dados! Número de leitores: %d. Número de escritores: %d\n", i, num_leitores, num_escritores);
     sleep(rand() % 5);
 }
 
 void use_data_read(int i) {
-    // printf("Leitor %d está usando os dados lidos! Número de leitores: %d\n", i, num_leitores);
+    printf("Leitor %d está usando os dados lidos! Número de leitores: %d\n", i, num_leitores);
     sleep(rand() % 5);
 }
 
