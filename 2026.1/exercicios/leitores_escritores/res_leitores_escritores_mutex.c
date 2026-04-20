@@ -1,8 +1,9 @@
+#include <windows.h>
+
 #include "pthread.h"
 #include "stdio.h"
 #include "stdlib.h"
 #include "unistd.h"
-#include <windows.h>
 
 #define TRUE 1
 
@@ -22,7 +23,7 @@ void think_up_data(int i);
 void write_data_base(int i);
 
 int main() {
-	SetConsoleOutputCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
     pthread_t r[NL], w[NE];
     int i;
