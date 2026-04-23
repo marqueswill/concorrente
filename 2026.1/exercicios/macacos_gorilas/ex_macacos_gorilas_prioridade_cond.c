@@ -15,7 +15,7 @@ void* macacoB(void* meuid);  // Tem prioridade 2
 void* gorilaA(void* meuid);  // Tem prioridade 1
 void* gorilaB(void* meuid);  // Tem prioridade 1
 
-pthread_mutex_t turno = PTHREAD_MUTEX_INITIALIZER;  // Controla quem inicia a travessia
+pthread_mutex_t turno = PTHREAD_MUTEX_INITIALIZER;  // Controla entrada e saída da corda
 pthread_cond_t ma_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t mb_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t ga_cond = PTHREAD_COND_INITIALIZER;
@@ -83,17 +83,19 @@ void* macacoA(void* a) {
         sleep(rand() % (i + 1));
         pthread_mutex_lock(&turno);
         {  // 1) Macaco A tenta atravessar
-           // Primeiro verifica se a corda tá disponível
+            // Primeiro verifica se deve esperar
+            // While para evitar dessincronização após o signal -> Verifica estado das variáveis antes de prosseguir
             maQuer++;
             while (                                             // Enquanto
                 (direcao == direcaoBA) ||                       // a direção é B -> A
-                (mbCorda > 0 || gaCorda > 0 || gbCorda > 0) ||  // ou ainda há primatas na corda
-                (gbQuer == 1 || gaQuer == 1)) {                 // ou gorilas querem passar
+                (mbCorda > 0 || gaCorda > 0 || gbCorda > 0) ||  // ou ainda há macacos de outro tipo na corda
+                (gbQuer > 0 || gaQuer > 0)) {                   // ou gorilas querem passar (prioridade)
                 pthread_cond_wait(&ma_cond, &turno);            // os macacos A esperam por permissão e deixam outro primata tentar atravessar
             }
             maQuer--;
 
             // 2) Verifica se o lado B quer atravessar
+            // Usado para evitar starvation
             if (mbQuer > 1) {         // Se macacos querem ir B para A
                 direcao = direcaoBA;  // Ele indica que o proximo turno é do lado B
             }
@@ -108,9 +110,11 @@ void* macacoA(void* a) {
 
         pthread_mutex_lock(&turno);
         {
+            // 1) Macaco sai da corda, um por vez
             maCorda--;
             printf("Macaco %dA terminou de atravessar.\n", i);
 
+            // 2) Se o fluxo de um lado pro outro acabar, eu libero para os demais
             if (maCorda == 0) {
                 pthread_cond_signal(&ga_cond);
                 pthread_cond_signal(&gb_cond);
@@ -133,7 +137,7 @@ void* macacoB(void* a) {
             while (                                             // Enquanto
                 (direcao == direcaoAB) ||                       // a direção é A -> B
                 (maCorda > 0 || gaCorda > 0 || gbCorda > 0) ||  // ou ainda há primatas na corda
-                (gbQuer == 1 || gaQuer == 1)) {                 // ou gorilas querem passar
+                (gbQuer > 0 || gaQuer > 0)) {                   // ou gorilas querem passar
                 pthread_cond_wait(&mb_cond, &turno);            // os macacos A esperam por permissão e deixam outro primata tentar atravessar
             }
             mbQuer--;
@@ -173,17 +177,18 @@ void* gorilaA(void* a) {
 
         pthread_mutex_lock(&turno);
         {
-            gaQuer = 1;
+            gaQuer++;
             printf("GORILA A QUER PASSAR!!!\n");
             while ((direcao == direcaoBA) ||
-                   (maCorda > 0 || mbCorda > 0 || gaCorda > 0 || gbCorda > 0)) {
+                   (maCorda > 0 || mbCorda > 0) ||  // Se ainda tem macaco passando
+                   (gaCorda > 0 || gbCorda > 0)) {  // Se ainda tem gorila passando (1 por vez)
                 pthread_cond_wait(&ga_cond, &turno);
             }
-            gaQuer = 0;
+            gaQuer--;
 
-            if (mbQuer || gbQuer) {
-                direcao = direcaoBA;
-            }
+            // if (mbQuer || gbQuer) {
+            // direcao = direcaoBA;
+            // }
 
             gbCorda++;
         }
@@ -196,6 +201,7 @@ void* gorilaA(void* a) {
         {
             gbCorda--;
             printf("Gorila A terminou de atravessar.\n\n");
+            pthread_cond_signal(&ga_cond);
             pthread_cond_signal(&gb_cond);
             pthread_cond_broadcast(&ma_cond);
             pthread_cond_broadcast(&mb_cond);
@@ -212,17 +218,17 @@ void* gorilaB(void* a) {
 
         pthread_mutex_lock(&turno);
         {
-            gbQuer = 1;
+            gbQuer++;
             printf("GORILA B QUER PASSAR!!!\n");
             while ((direcao == direcaoAB) ||
                    (maCorda > 0 || mbCorda > 0 || gaCorda > 0 || gbCorda > 0)) {
                 pthread_cond_wait(&gb_cond, &turno);
             }
-            gbQuer = 0;
+            gbQuer--;
 
-            if (maQuer || gaQuer) {
-                direcao = direcaoAB;
-            }
+            // if (maQuer || gaQuer) {
+            // direcao = direcaoAB;
+            // }
 
             gbCorda++;
         }
@@ -236,6 +242,7 @@ void* gorilaB(void* a) {
             gbCorda--;
             printf("Gorila B terminou de atravessar.\n\n");
             pthread_cond_signal(&ga_cond);
+            pthread_cond_signal(&gb_cond);
             pthread_cond_broadcast(&ma_cond);
             pthread_cond_broadcast(&mb_cond);
         }
