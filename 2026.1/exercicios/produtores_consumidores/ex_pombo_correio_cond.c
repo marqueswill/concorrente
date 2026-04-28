@@ -49,13 +49,9 @@ void* f_pombo(void* arg) {
             // Leva as cartas para B e volta para A
             printf("Pombo levando %d cartas de A para B.\n", cartas_mochila);
             lado_atual = !ladoA;
-        }
-        pthread_mutex_unlock(&mutex);
 
-        sleep(3);
+            sleep(3);
 
-        pthread_mutex_lock(&mutex);
-        {
             printf("Pombo voltou!\n");
             lado_atual = ladoA;
             cartas_mochila = 0;
@@ -67,11 +63,13 @@ void* f_pombo(void* arg) {
 }
 
 void* f_usuario(void* arg) {
+    int id = *(int *)arg;
     while (1) {
+        // Escreve uma carta
+        // printf("Usuário %d escrevendo uma carta.\n", id);
+        sleep(1);
         pthread_mutex_lock(&mutex);
         {
-            // Escreve uma carta
-            sleep(0.3);
 
             // Caso o pombo não esteja em A ou a mochila estiver cheia, então dorme
             while (lado_atual != ladoA ||
@@ -80,7 +78,7 @@ void* f_usuario(void* arg) {
             }
             // Posta sua carta na mochila do pombo
             cartas_mochila++;
-            printf("Uma carta foi adicionada à mochila. Cartas para levar: %d. \n", cartas_mochila);
+            printf("Usuário %d postou uma carta. Cartas para enviar: %d. \n", id, cartas_mochila);
 
             // Caso a mochila fique cheia, acorda o ṕombo
             if (cartas_mochila == MAXCARTAS) {
