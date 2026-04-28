@@ -1,0 +1,93 @@
+#include <pthread.h>
+#include <semaphore.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "unistd.h"
+
+#define N 10  // número de usuários
+#define ladoA 0
+#define MAXCARTAS 20  // quantidade de cartas na mochila
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t pombo_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t usuario_cond = PTHREAD_COND_INITIALIZER;
+
+void* f_usuario(void* arg);
+void* f_pombo(void* arg);
+
+int cartas_mochila = 0;
+int lado_atual = ladoA;
+
+int main(int argc, char** argv) {
+    int i;
+
+    pthread_t usuario[N];
+    int* id;
+    for (i = 0; i < N; i++) {
+        id = (int*)malloc(sizeof(int));
+        *id = i;
+        pthread_create(&(usuario[i]), NULL, f_usuario, (void*)(id));
+    }
+    pthread_t pombo;
+    id = (int*)malloc(sizeof(int));
+    *id = 0;
+    pthread_create(&(pombo), NULL, f_pombo, (void*)(id));
+
+    pthread_join(pombo, NULL);
+}
+
+void* f_pombo(void* arg) {
+    while (1) {
+        pthread_mutex_lock(&mutex);
+        {
+            // Inicialmente está em A, aguardar/dorme a mochila ficar cheia (20 cartas)
+            while (cartas_mochila != MAXCARTAS) {
+                pthread_cond_wait(&pombo_cond, &mutex);
+            }
+            printf("JA TO INDO!!!\n");
+            // Leva as cartas para B e volta para A
+            printf("Pombo levando %d cartas de A para B.\n", cartas_mochila);
+            lado_atual = !ladoA;
+        }
+        pthread_mutex_unlock(&mutex);
+
+        sleep(3);
+
+        pthread_mutex_lock(&mutex);
+        {
+            printf("Pombo voltou!\n");
+            lado_atual = ladoA;
+            cartas_mochila = 0;
+            // Acordar os usuários
+            pthread_cond_broadcast(&usuario_cond);
+        }
+        pthread_mutex_unlock(&mutex);
+    }
+}
+
+void* f_usuario(void* arg) {
+    while (1) {
+        pthread_mutex_lock(&mutex);
+        {
+            // Escreve uma carta
+            sleep(0.3);
+
+            // Caso o pombo não esteja em A ou a mochila estiver cheia, então dorme
+            while (lado_atual != ladoA ||
+                   cartas_mochila == MAXCARTAS) {
+                pthread_cond_wait(&usuario_cond, &mutex);
+            }
+            // Posta sua carta na mochila do pombo
+            cartas_mochila++;
+            printf("Uma carta foi adicionada à mochila. Cartas para levar: %d. \n", cartas_mochila);
+
+            // Caso a mochila fique cheia, acorda o ṕombo
+            if (cartas_mochila == MAXCARTAS) {
+                printf("POMBO VAI TRABALHAR!\n");
+                pthread_cond_signal(&pombo_cond);
+            }
+        }
+        pthread_mutex_unlock(&mutex);
+    }
+}

@@ -52,20 +52,20 @@ int main(int argc, char* argv[]) {
 void* canibal(void* pi) {
     while (1) {
         pthread_mutex_lock(&mutex);
+        {
+            while (porcoes == 0) {
+                pthread_cond_wait(&canibal_cond, &mutex);
+            }
+            porcoes--;
 
-        while (porcoes == 0) {
-            pthread_cond_wait(&canibal_cond, &mutex);
+            // pegar uma porção de comida e acordar o cozinheiro se as porções acabaram
+            printf("%02d: peguei uma porção. Porções restantes: %d.\n", *(int*)(pi), porcoes);
+
+            if (porcoes == 0) {
+                printf("ACABOU O RANGOOOO!!\n");
+                pthread_cond_signal(&cozinheiro_cond);
+            }
         }
-        porcoes--;
-
-        // pegar uma porção de comida e acordar o cozinheiro se as porções acabaram
-        printf("%02d: peguei uma porção. Porções restantes: %d.\n", *(int*)(pi), porcoes);
-
-        if (porcoes == 0) {
-            printf("ACABOU O RANGOOOO!!\n");
-            pthread_cond_signal(&cozinheiro_cond);
-        }
-
         pthread_mutex_unlock(&mutex);
 
         printf("%02d: vou comer a porcao que peguei.\n", *(int*)(pi));
@@ -81,14 +81,10 @@ void* cozinheiro(int m) {
             while (porcoes > 0) {
                 pthread_cond_wait(&cozinheiro_cond, &mutex);
             }
-        }
-        pthread_mutex_unlock(&mutex);
 
-        printf("cozinheiro: vou cozinhar\n");
-        sleep(3);
+            printf("cozinheiro: vou cozinhar\n");
+            sleep(3);
 
-        pthread_mutex_lock(&mutex);
-        {
             porcoes = m;
             printf("RANGO PRONTO! Porções disponíveis: %d.\n", porcoes);
             pthread_cond_broadcast(&canibal_cond);
