@@ -63,14 +63,13 @@ void* f_pombo(void* arg) {
 }
 
 void* f_usuario(void* arg) {
-    int id = *(int *)arg;
+    int id = *(int*)arg;
     while (1) {
         // Escreve uma carta
         // printf("Usuário %d escrevendo uma carta.\n", id);
         sleep(1);
         pthread_mutex_lock(&mutex);
         {
-
             // Caso o pombo não esteja em A ou a mochila estiver cheia, então dorme
             while (lado_atual != ladoA ||
                    cartas_mochila == MAXCARTAS) {
