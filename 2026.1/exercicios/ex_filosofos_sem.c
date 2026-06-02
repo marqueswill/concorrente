@@ -8,29 +8,21 @@
 #define N 5
 #define ESQ(id) (id + N - 1) % N
 #define DIR(id) (id + 1) % N
-#define PENSANDO 0
-#define FAMINTO 1
-#define COMENDO 2
 
-int estados[N];
-
-pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 sem_t s[N];
 
 void* filosofos(void* arg);
+
 void pega_talher(int n);
 void devolve_talher(int n);
-void teste(int n);
 
 int main() {
     int i;
     int* id;
-
     // semaforo
     for (i = 0; i < N; i++) {
-        sem_init(&(s[i]), 0, 0);
+        sem_init(&s[i], 0, 1);
     }
-
     pthread_t r[N];
 
     // criacao das threads de filosofos
@@ -60,26 +52,19 @@ void* filosofos(void* arg) {
 }
 
 void pega_talher(int n) {
-    pthread_mutex_lock(&lock);
-    estados[n] = FAMINTO;
-    teste(n);
-    pthread_mutex_unlock(&lock);
-    sem_wait(&s[n]);
+    if (n == 4) {
+        sem_wait(&s[DIR(n)]);
+        sleep(1);
+        sem_wait(&s[ESQ(n)]);
+
+    } else {
+        sem_wait(&s[ESQ(n)]);
+        sleep(1);
+        sem_wait(&s[DIR(n)]);
+    }
 }
 
 void devolve_talher(int n) {
-    pthread_mutex_lock(&lock);
-    estados[n] = PENSANDO;
-    teste(ESQ(n)); // Tenta liberar o da esquerda
-    teste(DIR(n));  // Tenta liberar o da direita
-    pthread_mutex_unlock(&lock);
-}
-
-void teste(int n) {
-    if (estados[n] == FAMINTO &&
-        estados[ESQ(n)] != COMENDO &&
-        estados[DIR(n)] != COMENDO) {
-        estados[n] = COMENDO;
-        sem_post(&s[n]);
-    }
+    sem_post(&s[ESQ(n)]);
+    sem_post(&s[DIR(n)]);
 }
