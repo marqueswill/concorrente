@@ -1,0 +1,57 @@
+// 1. MEMÓRIA COMPARTILHADA (Globais)
+inteiro vozes_prontas = 0;
+inteiro compasso_atual = 1;
+string acorde_atual[4]; // Array para guardar a nota de cada voz
+
+// Mecanismos de Sincronização POSIX
+Mutex trava;
+Variavel_Condicao barreira;
+
+// 2. A FUNÇÃO DAS THREADS (O que cada voz faz)
+Funcao Cantar(inteiro id_voz, string[] minha_partitura) {
+    
+    Para cada nota na minha_partitura Faça:
+        
+        // A) O CAOS (Atraso imprevisível do Sistema Operacional)
+        dormir(tempo_aleatorio); 
+        
+        // B) REGIÃO CRÍTICA (Bloqueia para escrever na memória)
+        bloquear(trava);
+        
+        // Escreve a nota no buffer compartilhado
+        acorde_atual[id_voz] = nota;
+        vozes_prontas = vozes_prontas + 1;
+        
+        // C) A SINCRONIZAÇÃO (A Barreira)
+        Se (vozes_prontas == 4) Entao:
+            // Eu sou a ÚLTIMA voz a chegar! O acorde está pronto.
+            imprimir("Compasso", compasso_atual, ":", acorde_atual);
+            
+            // Prepara para o próximo compasso
+            vozes_prontas = 0;
+            compasso_atual = compasso_atual + 1;
+            
+            // Acorda todo mundo que estava esperando
+            Acordar_Todos(barreira);
+            
+        Senao:
+            // Eu cheguei cedo. Fico esperando as outras vozes.
+            // O "Esperar" libera a trava automaticamente enquanto eu durmo.
+            Esperar(barreira, trava);
+            
+        Fim Se
+        
+        desbloquear(trava); // Libera para a próxima iteração
+        
+    Fim Para
+}
+
+// 3. A FUNÇÃO PRINCIPAL (O Maestro)
+Funcao Main() {
+    Criar_Thread(Cantar, ID=0, notas_soprano);
+    Criar_Thread(Cantar, ID=1, notas_contralto);
+    Criar_Thread(Cantar, ID=2, notas_tenor);
+    Criar_Thread(Cantar, ID=3, notas_baixo);
+    
+    Aguardar_Todas_Threads_Terminarem();
+}
