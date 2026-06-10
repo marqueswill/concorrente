@@ -1,0 +1,12 @@
+
+| **1. Afinação Difusa (Gossip Protocol de Frequências)** 
+| Cada instrumento (thread) começa desafinado (frequência aleatória). Em cada ciclo, ele "escuta" a frequência dos seus dois vizinhos imediatos e ajusta a sua própria para a média geométrica. **Áudio:** Inicia com dissonância (ruído/pitch divergente) e converge gradualmente para uma única nota perfeitamente afinada. 
+| Condição de corrida ao ler a frequência do vizinho enquanto ele a atualiza. Exige `pthread_rwlock_t` para cada instrumento ou ordem estrita de aquisição de mutex (trancar IDs menores primeiro) para evitar deadlocks locais.
+
+| **2. Ensaio de Naipes (Sincronização Hierárquica)** 
+| Instrumentos são divididos em grupos (ex: Cordas, Metais, Madeiras). As threads de um naipe devem sincronizar seus tempos de entrada entre si. Apenas quando o naipe atinge sincronia interna, um "líder de naipe" tenta sincronizar o grupo inteiro com os outros naipes. **Áudio:** Ouve-se grupos pequenos se alinhando ritmicamente de forma isolada, até que todos os grupos entrem no mesmo compasso. 
+| Impede o uso de uma barreira global única. Requer arquitetura de múltiplas variáveis de condição atreladas a diferentes escopos (uma por naipe, uma global) e controle de estado do líder.
+
+| **3. Cânone Contínuo (Produtor-Consumidor Encadeado)** 
+| A música é uma "Fuga" (ex: Frère Jacques). A Voz 2 deve estar sempre exatamente 2 compassos atrás da Voz 1. A Voz 3 atrás da Voz 2. Uma thread "envia" a permissão de tocar a próxima nota para a próxima thread da cadeia através de um buffer delimitado. **Áudio:** A melodia flui em cascata. Se uma thread sofrer atraso de escalonamento do sistema operacional, as vozes subsequentes pausam obrigatoriamente, mantendo o intervalo musical estrutural intacto. 
+| Implementação de semáforos encadeados (buffers independentes entre Voz 1-2, Voz 2-3). Evita espera ocupada e cria uma dependência de dados estritamente direcional.
