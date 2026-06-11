@@ -11,21 +11,24 @@
 #define N_CADEIRAS 5
 
 sem_t sem_cadeiras;
+sem_t sem_cadeira_barbeiro;
+
 sem_t sem_barbeiro;
-sem_t sem_corte;
+sem_t sem_cliente;
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void* f_barbeiro(void* v) {
     while (1) {
         //...Esperar/dormindo algum cliente sentar na cadeira do barbeiro (e acordar o barbeiro)
+        printf("Barbeiro está dormindo zzzzzzz\n")
         sem_wait(&sem_barbeiro);
 
-        sleep(1);  // Cortar o cabelo do cliente
+        sleep(2);  // Cortar o cabelo do cliente
         printf("Barbeiro cortou o cabelo de um cliente\n");
 
         //...Liberar/desbloquear o cliente
-        sem_post(&sem_corte);
+        sem_post(&sem_cliente);
     }
     pthread_exit(0);
 }
@@ -34,23 +37,23 @@ void* f_cliente(void* v) {
     int id = *(int*)v;
 
     while (1) {
-        sleep(id % 3);
+        sleep((id % 3) * 10);
 
         if (!sem_trywait(&sem_cadeiras)) {  // conseguiu pegar uma cadeira de espera
             printf("Cliente %d entrou na barbearia \n", id);
 
             //... pegar/sentar a cadeira do barbeiro
-            pthread_mutex_lock(&mutex);
-            {
-                //... liberar a sua cadeira de espera
-                sem_post(&sem_cadeiras);
+            sem_wait(&sem_cadeira_barbeiro);
 
-                //... acordar o barbeiro para cortar seu cabelo
-                sem_post(&sem_barbeiro);
+            //... liberar a sua cadeira de espera
+            sem_post(&sem_cadeiras);
 
-                //... aguardar o corte do seu cabelo
-                sem_wait(&sem_corte);
-            }
+            //... acordar o barbeiro para cortar seu cabelo
+            sem_post(&sem_barbeiro);
+
+            //... aguardar o corte do seu cabelo
+            sem_post(&sem_cadeira_barbeiro);
+
             //... liberar a cadeira do barbeiro
             pthread_mutex_unlock(&mutex);
 
@@ -67,8 +70,9 @@ int main() {
     int i, id[N_CLIENTES];
 
     sem_init(&sem_cadeiras, 0, N_CADEIRAS);
+    sem_init(&sem_cadeira_barbeiro, 0, 1);
     sem_init(&sem_barbeiro, 0, 0);
-    sem_init(&sem_corte, 0, 0);
+    sem_init(&sem_cliente, 0, 0);
 
     for (i = 0; i < N_CLIENTES; i++) {
         id[i] = i;
@@ -81,6 +85,6 @@ int main() {
         pthread_join(thr_clientes[i], NULL);
 
     /* Barbeiro assassinado */
-
+    printf("Barbeiro assassinado\n");
     return 0;
 }
