@@ -2,7 +2,7 @@
 
 ### Contexto
 
-Uma música digital é composta por um número de faixas de áudio (vozes de um coral) correspondente a uma potência de 2 ($N = 2^k$). Cada faixa é controlada por um par de threads executando em paralelo: uma thread de áudio (DSP), responsável pela reprodução contínua, e uma thread de sincronização, responsável pelo alinhamento do ritmo. Inicialmente, cada faixa começa a ser reproduzida em uma velocidade aleatória e em pontos temporais distintos, gerando uma reprodução caótica e desalinhada.
+Uma música digital é composta por um número de faixas de áudio correspondente a uma potência de 2 ($N = 2^k$). Cada faixa é controlada por um par de threads executando em paralelo: uma thread de áudio, responsável pela reprodução contínua, e uma thread de sincronização, responsável pelo alinhamento do ritmo. Inicialmente, cada faixa começa a ser reproduzida em uma velocidade aleatória e em pontos temporais distintos, gerando uma reprodução caótica e desalinhada.
 
 ### O Problema Concorrente e Condições de Corrida
 
