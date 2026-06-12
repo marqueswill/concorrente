@@ -37,15 +37,14 @@ pthread_t sync_threads[NODES];   // Threads que interagem com a árvore
 
 int thread_ids[NODES];
 
-AudioTrack* tracks[NODES];
-TreeNode* tree;
+AudioTrack* track_list[NODES];
+// TreeNode* tree;
+TreeNode* tree[NODES];
 
 void* cantor(void* arg);
 void* audio(void* arg);
 
 void build_tree() {
-    TreeNode* node_addr[NODES];
-
     for (int i = 0; i < NODES; i++) {
         TreeNode* node_ptr = malloc(sizeof(TreeNode));
         node_ptr->id = i;
@@ -55,36 +54,34 @@ void build_tree() {
         node_ptr->left = NULL;
         node_ptr->right = NULL;
 
-        node_addr[i] = node_ptr;
+        tree[i] = node_ptr;
     }
 
     int first_leaf_ind = LEAFS - 1;
     for (int i = 0; i < NODES; i++) {
-        TreeNode* node = node_addr[i];
+        TreeNode* node = tree[i];
 
         int parent_idx = (i - 1) / 2;
         int left_idx = 2 * i + 1;
         int right_idx = 2 * i + 2;
 
         if (i > 0) {
-            node->parent = node_addr[parent_idx];
+            node->parent = tree[parent_idx];
         }
 
         if (left_idx < NODES) {
-            node->left = node_addr[left_idx];
+            node->left = tree[left_idx];
         }
 
         if (right_idx < NODES) {
-            node->right = node_addr[right_idx];
+            node->right = tree[right_idx];
         }
 
         node->is_root = i == 0;
         node->is_leaf = (left_idx >= NODES) || (right_idx >= NODES);
 
-        pthread_barrier_init(&(node->barrier), NULL, (right_idx >= NODES) ? 3 : 1);
+        pthread_barrier_init(&(node->barrier), NULL, (right_idx >= NODES) ? 1 : 3);
     }
-
-    tree = node_addr[0];
 }
 
 void init_track_data() {
@@ -95,8 +92,33 @@ void init_track_data() {
         pthread_mutex_init(&(track_ptr->lock), NULL);
         pthread_cond_init(&(track_ptr->cond), NULL);
 
-        tracks[i] = track_ptr;
+        track_list[i] = track_ptr;
     }
+}
+
+// Só funciona em heaps perfeitos
+void broadcast_bpm(int track_id, int new_bpm) {
+    int left_idx = 2 * track_id + 1;
+    int right_idx = 2 * track_id + 2;
+
+    if ((left_idx >= NODES) || (right_idx >= NODES)) {
+        return;
+    }
+
+    AudioTrack* track = track_list[track_id];
+
+    pthread_mutex_lock(&track->lock);
+    track->bpm = new_bpm;
+    pthread_cond_signal(&track->cond);  // aviso pra thread de audio atualizar
+    pthread_mutex_unlock(&track->lock);
+
+    broadcast_bpm(left_idx, new_bpm);
+    broadcast_bpm(right_idx, new_bpm);
+}
+
+void play_track(AudioTrack* track) {
+    // TODO: implementar essa bomba
+    return;
 }
 
 int main() {
@@ -120,11 +142,14 @@ int main() {
     }
 
     // Liberar memória
-    free_tree(tree);
     for (int i = 0; i < NODES; i++) {
-        pthread_mutex_destroy(&(tracks[i]->lock));
-        pthread_cond_destroy(&(tracks[i]->cond));
-        free(tracks[i]);
+        free(tree[i]);
+    }
+
+    for (int i = 0; i < NODES; i++) {
+        pthread_mutex_destroy(&(track_list[i]->lock));
+        pthread_cond_destroy(&(track_list[i]->cond));
+        free(track_list[i]);
     }
 
     return 0;
@@ -132,28 +157,33 @@ int main() {
 
 void* cantor(void* arg) {
     int id = *((int*)arg);
+    TreeNode* node = tree[id];
+    AudioTrack* track = track_list[id];
+    AudioTrack* left_track = (node->is_leaf) ? NULL : track_list[node->left->id];
+    AudioTrack* right_track = (node->is_leaf) ? NULL : track_list[node->right->id];
 
     while (1) {
-        // Se a thread é folha, tento sincronizar com a irmã acessando o nó do pai
+        if (node->is_leaf) {                               // Se a thread é folha, tento sincronizar com a irmã acessando o nó do pai
+            pthread_barrier_wait(&node->parent->barrier);  // Avanço na árvore tentando liberar a barreira no pai
+            break;                                         // Sincronizei, em teoria essa thread não faz mais nada
+        } else {                                           //  Se a thread não é folha:
+            // Está esperando os filhos, faço nada até que os filhos chegem: acesso a barreira do nó atual
+            // Quando o filhos chegarem (eles acessaram a barreira pela esquerda e pela direita)
+            int res = pthread_barrier_wait(&node->barrier);
+            if (res == PTHREAD_BARRIER_SERIAL_THREAD) {  // Apenas UMA das 3 threads entra neste bloco.
+                //  Eu calculo a média das velocidades
+                int newBPM = (left_track->bpm + right_track->bpm) / 2;
 
-        // Se a thread não é folha:
-        // -> Está esperando os filhos, faço nada até que os filhos chegem: acesso a barreira do nó atual
-        // -> Quando o filhos chegarem: eles acessaram a barreira pela esquerda e pela direita
-        // --> Eu calculo a média das velocidades
-        // --> Eu propago essa nova média para a subárvore esquerda e direita
-        // --> Se o nó atual não é a raiz
-        // ---> Eu tento sincronizar com a thread irmã a partir do nó do pai: acesso a barreira do pai
+                //  Eu propago essa nova média para a subárvore esquerda e direita
+                broadcast_bpm(id, newBPM);
 
-        // TODO: Lógica de navegação bottom-up usando o ponteiro 'parent' do nó
-        /*
-                int res = pthread_barrier_wait(&no_atual->barrier);
-                if (res == PTHREAD_BARRIER_SERIAL_THREAD) {
-                    // Apenas UMA das 3 threads entra neste bloco.
-                    // Executar o cálculo de média aqui.
+                if (!node->is_root) {                              // Se não for raiz, continuo subindo
+                    pthread_barrier_wait(&node->parent->barrier);  // Avanço na árvore tentando liberar a barreira no pai
                 }
-        */
 
-        // TODO: Propagar a média
+                break;
+            }
+        }
     }
 
     return NULL;
@@ -162,22 +192,15 @@ void* cantor(void* arg) {
 // Ineficiente?
 void* audio(void* arg) {
     int id = *((int*)arg);
+    AudioTrack* track = track_list[id];
 
-    // TODO: Iniciar reprodução
-
+    play_track(track);
     while (1) {
-        // TODO: Ler ler o bpm de tracks[id]
-        // TODO: Reiniciar reprodução com nova velocidade se o bpm mudar
-
-        /*
+        // Lock usado só para reler após atualização
         pthread_mutex_lock(&track->lock);
-        pthread_cond_wait(&track->cond, &track->lock);
-
-        // Variável de condição acordou a thread e retomou o lock automaticamente.
-        // Ler o novo bpm e reiniciar reprodução.
-
+        pthread_cond_wait(&track->cond, &track->lock);  // Variável de condição acordou a thread e retomou o lock automaticamente.
+        play_track(track);
         pthread_mutex_unlock(&track->lock);
-        */
     }
 
     return NULL;
