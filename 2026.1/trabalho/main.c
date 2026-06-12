@@ -26,25 +26,24 @@ typedef struct TreeNode {
     struct TreeNode* right;     // Ponteiro para o filho direito
     pthread_barrier_t barrier;  // 3 permissões, thread do nó só avança após as threads filhas chegarem e a média for calculada
 } TreeNode;
-
-struct AudioTrack {
+typedef struct AudioTrack {
     int bpm;
     pthread_mutex_t lock;  // Lock para atualizar o bpm
     pthread_cond_t cond;   // Evita busy waiting
-};
+} AudioTrack;
 
 pthread_t audio_threads[NODES];  // Threads que reproduzem o aúdio
 pthread_t sync_threads[NODES];   // Threads que interagem com a árvore
+
 int thread_ids[NODES];
+
+AudioTrack* tracks[NODES];
+TreeNode* tree;
 
 void* cantor(void* arg);
 void* audio(void* arg);
 
-TreeNode* build_tree() {
-    // TODO: Construir a árvore em memória alocando os nós dinamicamente
-    // TODO: Inicializar ponteiros left, right e parent da árvore
-    // TODO: Inicializar as barreiras de cada nó (pthread_barrier_init)
-
+void build_tree() {
     TreeNode* node_addr[NODES];
 
     for (int i = 0; i < NODES; i++) {
@@ -85,19 +84,33 @@ TreeNode* build_tree() {
         pthread_barrier_init(&(node->barrier), NULL, (right_idx >= NODES) ? 3 : 1);
     }
 
-    return node_addr[0];
+    tree = node_addr[0];
+}
+
+void init_track_data() {
+    for (int i = 0; i < NODES; i++) {
+        AudioTrack* track_ptr = malloc(sizeof(AudioTrack));
+        track_ptr->bpm = (rand() % 200) + 1;  // random de 1 a 200
+
+        pthread_mutex_init(&(track_ptr->lock), NULL);
+        pthread_cond_init(&(track_ptr->cond), NULL);
+
+        tracks[i] = track_ptr;
+    }
 }
 
 int main() {
-    TreeNode* tree = build_tree();
-    // TODO: Inicializar mutexes e variáveis de condição (pthread_cond_init) das faixas de áudio
+    build_tree();
+    init_track_data();
 
+    // Criar threads
     for (int i = 0; i < NODES; i++) {
         thread_ids[i] = i;
         pthread_create(&sync_threads[i], NULL, cantor, &thread_ids[i]);
         pthread_create(&audio_threads[i], NULL, audio, &thread_ids[i]);
     }
 
+    // Juntar threads
     for (int i = 0; i < NODES; i++) {
         pthread_join(sync_threads[i], NULL);
     }
@@ -106,8 +119,13 @@ int main() {
         pthread_join(audio_threads[i], NULL);
     }
 
-    // TODO: Destruir barreiras, mutexes e variáveis de condição (destroy)
-    // TODO: Liberar a memória da árvore com free() percorrendo os nós
+    // Liberar memória
+    free_tree(tree);
+    for (int i = 0; i < NODES; i++) {
+        pthread_mutex_destroy(&(tracks[i]->lock));
+        pthread_cond_destroy(&(tracks[i]->cond));
+        free(tracks[i]);
+    }
 
     return 0;
 }
