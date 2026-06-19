@@ -5,42 +5,24 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-// Threads são organizadas em uma árvore binária
-// Sincronização feita bottom-up, das folhas até a raiz, duas threads por vez.
-// Os nós representam os estados das threads: esperando filhos, esperando irmão e sincronizado
-// Cada nó tem uma barreira com três permissões para sua thread e a thread dos filhos.
-// A thread de cada nó filho se encontra nas barreiras do nó pai.
-// Quando se econtrarem, o pai calcula a média das velocidades, atualizam o nó pai e fazem brodcast do valor para baixo
 typedef struct TreeNode {
     int id;
-    // int thread_state;  // Necessário?
-    // int node_height;   // Necessário?
     int is_root;
     int is_leaf;
+    int level;
     struct TreeNode* parent;
-    struct TreeNode* left;      // Ponteiro para o filho esquerdo
-    struct TreeNode* right;     // Ponteiro para o filho direito
-    pthread_barrier_t barrier;  // 3 permissões, thread do nó só avança após as threads filhas chegarem e a média for calculada
+    struct TreeNode* left;
+    struct TreeNode* right;
+    pthread_barrier_t barrier;
 } TreeNode;
+
 typedef struct AudioTrack {
     int id;
     int bpm;
     int updated;
-    pthread_mutex_t lock;  // Lock para atualizar o bpm
-    pthread_cond_t cond;   // Evita busy waiting
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
 } AudioTrack;
-
-// #define N 2;  // Altura da árvore
-// #define LEAFS (1 << N)
-// #define NODES ((1 << (N + 1)) - 1)
-
-// pthread_t audio_threads[NODES];  // Threads que reproduzem o aúdio
-// pthread_t sync_threads[NODES];   // Threads que interagem com a árvore
-
-// int thread_ids[NODES];
-
-// AudioTrack* track_list[NODES];
-// TreeNode* tree[NODES];
 
 int N;
 int LEAFS;
@@ -63,6 +45,7 @@ void build_tree() {
         node_ptr->id = i;
         node_ptr->is_root = 0;
         node_ptr->is_leaf = 0;
+        node_ptr->level = 0;
         node_ptr->parent = NULL;
         node_ptr->left = NULL;
         node_ptr->right = NULL;
@@ -70,7 +53,6 @@ void build_tree() {
         tree[i] = node_ptr;
     }
 
-    int first_leaf_ind = LEAFS - 1;
     for (int i = 0; i < NODES; i++) {
         TreeNode* node = tree[i];
 
@@ -80,6 +62,9 @@ void build_tree() {
 
         if (i > 0) {
             node->parent = tree[parent_idx];
+            node->level = node->parent->level + 1;
+        } else {
+            node->level = 0;
         }
 
         if (left_idx < NODES) {
@@ -92,73 +77,70 @@ void build_tree() {
 
         node->is_root = i == 0;
         node->is_leaf = (left_idx >= NODES) || (right_idx >= NODES);
-
-        pthread_barrier_init(&(node->barrier), NULL, (right_idx >= NODES) ? 1 : 3);
+        pthread_barrier_init(&(node->barrier), NULL, node->is_leaf ? 1 : 3);
     }
+    printf("[Main] Árvore construída. N=%d, NODES=%d, LEAFS=%d\n", N, NODES, LEAFS);
 }
 
 void init_track_data() {
     for (int i = 0; i < NODES; i++) {
         AudioTrack* track_ptr = malloc(sizeof(AudioTrack));
         track_ptr->id = i;
-        track_ptr->bpm = (rand() % 200) + 1;  // random de 1 a 200
+        track_ptr->bpm = (rand() % 200) + 1;
 
         pthread_mutex_init(&(track_ptr->lock), NULL);
         pthread_cond_init(&(track_ptr->cond), NULL);
 
         track_list[i] = track_ptr;
     }
+    printf("[Main] Dados das faixas de áudio inicializados.\n");
 }
 
-// Só funciona em heaps perfeitos
 void broadcast_bpm(int track_id, int new_bpm) {
-    int left_idx = 2 * track_id + 1;
-    int right_idx = 2 * track_id + 2;
-
-    if ((left_idx >= NODES) || (right_idx >= NODES)) {
-        return;
-    }
-
     AudioTrack* track = track_list[track_id];
 
     pthread_mutex_lock(&track->lock);
     {
         track->bpm = new_bpm;
-        track->updated = 1;
-        pthread_cond_signal(&track->cond);  // aviso pra thread de audio atualizar
+        printf("[Broadcast] Atualizando Track %d para %d BPM e enviando sinal.\n", track_id, new_bpm);
+        pthread_cond_signal(&track->cond);
     }
     pthread_mutex_unlock(&track->lock);
 
-    broadcast_bpm(left_idx, new_bpm);
-    broadcast_bpm(right_idx, new_bpm);
+    int left_idx = 2 * track_id + 1;
+    int right_idx = 2 * track_id + 2;
+
+    if (left_idx < NODES) {
+        broadcast_bpm(left_idx, new_bpm);
+    }
+
+    if (right_idx < NODES) {
+        broadcast_bpm(right_idx, new_bpm);
+    }
 }
 
 void play_track(AudioTrack* track) {
-    printf("THREAD %d tocando audio.", track->id);
-    
-    char command[512];
-
-    // 1. Interrompe a execução anterior desta faixa específica usando pkill
-    snprintf(command, sizeof(command), "pkill -f 'ffplay.*tracks/audio%d.mp3'", track->id);
-    system(command);
-
-    // 2. Calcula a taxa de velocidade.
-    // Assumimos 100 BPM como velocidade normal (1.0x).
-    // O filtro atempo do FFmpeg aceita valores entre 0.5 e 100.0.
+    int target_audio = 0;
     float speed = (float)track->bpm / 100.0f;
     if (speed < 0.5f) {
         speed = 0.5f;
     }
 
-    // 3. Constrói o comando de reprodução em segundo plano (&)
-    // -nodisp: desativa a janela de vídeo/espectro
-    // -autoexit: fecha o processo ao terminar o áudio
-    // > /dev/null 2>&1: suprime os logs do ffplay no terminal
-    snprintf(command, sizeof(command),
-             "ffplay -nodisp -autoexit -af atempo=%.2f tracks/audio%d.mp3 > /dev/null 2>&1 &",
-             speed, track->id);
+    char command[512];
 
-    // 4. Executa a nova faixa
+    // 1. LER O PID E MATAR O PROCESSO ANTERIOR
+    // Tenta ler o arquivo com o PID exclusivo desta thread e matar apenas ele.
+    // Os "2>/dev/null" impedem que erros sujem o terminal na primeira vez que rodar (quando o PID ainda não existe).
+    snprintf(command, sizeof(command), "kill $(cat /tmp/audio_thread_%d.pid 2>/dev/null) 2>/dev/null", track->id);
+    system(command);
+
+    // 2. TOCAR O ÁUDIO ÚNICO E SALVAR O NOVO PID
+    // Substitua "tracks/audio_unico.mp3" pelo nome real do seu arquivo.
+    // O comando "echo $! > /tmp/..." pega o PID do processo em background (&) e salva no txt.
+    snprintf(command, sizeof(command),
+             "ffplay -nodisp -autoexit -af atempo=%.2f tracks/audio%d.mp3 > /dev/null 2>&1 & echo $! > /tmp/audio_thread_%d.pid",
+             speed, target_audio, track->id);
+
     system(command);
 }
 
@@ -175,7 +157,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Inicializa variáveis globais e structs
     LEAFS = 1 << N;
     NODES = (1 << (N + 1)) - 1;
     audio_threads = malloc(NODES * sizeof(pthread_t));
@@ -187,14 +168,15 @@ int main(int argc, char* argv[]) {
     build_tree();
     init_track_data();
 
-    // Criar threads
+    printf("[Main] Iniciando criação das threads...\n");
     for (int i = 0; i < NODES; i++) {
         thread_ids[i] = i;
-        // pthread_create(&sync_threads[i], NULL, cantor, &thread_ids[i]);
+        // ATENÇÃO: Descomentei a linha abaixo para evitar segfault no join
+        pthread_create(&sync_threads[i], NULL, cantor, &thread_ids[i]);
         pthread_create(&audio_threads[i], NULL, audio, &thread_ids[i]);
     }
 
-    // Juntar threads
+    printf("[Main] Aguardando finalização das threads\n");
     for (int i = 0; i < NODES; i++) {
         pthread_join(sync_threads[i], NULL);
     }
@@ -203,7 +185,6 @@ int main(int argc, char* argv[]) {
         pthread_join(audio_threads[i], NULL);
     }
 
-    // Liberar memória
     for (int i = 0; i < NODES; i++) {
         free(tree[i]);
     }
@@ -214,6 +195,7 @@ int main(int argc, char* argv[]) {
         free(track_list[i]);
     }
 
+    printf("[Main] Programa finalizado com sucesso.\n");
     return 0;
 }
 
@@ -222,54 +204,72 @@ void* cantor(void* arg) {
     TreeNode* node = tree[id];
     AudioTrack* track = track_list[id];
 
+    // printf("___________[Cantor %d] is_root = %d, is_leaf = %d\n", node->id, node->is_root, node->is_leaf);
+    printf("[Cantor %d] Iniciado. %s\n", id, node->is_leaf ? "É folha." : (node->is_root ? "É raiz." : "Nó intermediário."));
+
     while (run) {
-        if (node->is_leaf) {                               // Se a thread é folha, tento sincronizar com a irmã acessando o nó do pai
-            pthread_barrier_wait(&node->parent->barrier);  // Avanço na árvore tentando liberar a barreira no pai
-            break;                                         // Sincronizei, em teoria essa thread não faz mais nada
-        } else {
-            // Se a thread não é folha:
-            // Está esperando os filhos, faço nada até que os filhos chegem: acesso a barreira do nó atual
+        if (!node->is_leaf) {
+            printf("[Cantor %d] Esperando na PRÓPRIA barreira os filhos chegarem...\n", id);
             int res = pthread_barrier_wait(&node->barrier);
-            // Quando o filhos chegarem (eles acessaram a barreira pela esquerda e pela direita)
-            if (res == PTHREAD_BARRIER_SERIAL_THREAD) {  // Apenas UMA das 3 threads entra neste bloco.
-                //  Eu calculo a média das velocidades
-                AudioTrack* left_track = track_list[node->left->id];
-                AudioTrack* right_track = track_list[node->right->id];
-                int newBPM = (left_track->bpm + right_track->bpm) / 2;
 
-                //  Eu propago essa nova média para a subárvore esquerda e direita
-                broadcast_bpm(id, newBPM);
+            printf("[Cantor %d] Barreira liberada! Vou calcular a média da minha subárvore.\n", id);
+            AudioTrack* left_track = track_list[node->left->id];
+            AudioTrack* right_track = track_list[node->right->id];
+            int newBPM = (left_track->bpm + right_track->bpm) / 2;
 
-                if (!node->is_root) {                              // Se não for raiz, eu tenho pa entãoi:
-                    pthread_barrier_wait(&node->parent->barrier);  // Avanço na árvore tentando liberar a barreira no pai
-                }
+            printf("[Cantor %d] Calculou novo BPM: %d (Esq: %d, Dir: %d)\n", id, newBPM, left_track->bpm, right_track->bpm);
 
-                break;
+            sleep((rand() % 6) + node->id + N - node->level + 1);  // Delay para conseguir ouvir sincronizandos, quando mais proximo da raiz mais lento
+            broadcast_bpm(id, newBPM);
+
+            if (!node->is_root) {
+                printf("[Cantor %d] É INTERMEDIÁRIO. Sincronização parcial alcançada. Agora esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
+                pthread_barrier_wait(&node->parent->barrier);
+                printf("[Cantor %d] Passou da barreira do pai.\n", id);
+            } else {
+                printf("[Cantor %d] É RAIZ. Sincronização completa alcançada.\n", id);
             }
+
+            break;
         }
+
+        if (!node->is_root) {  // É apenas folha
+            printf("[Cantor %d] Esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
+            pthread_barrier_wait(&node->parent->barrier);
+            printf("[Cantor %d] Passou da barreira do pai. Encerrando ciclo.\n", id);
+        } else {  // É folha e raiz
+            printf("[Cantor %d] É folha e raiz ao mesmo tempo (N=0). Não há com quem sincronizar. Encerrando.\n", id);
+        }
+
+        break;
     }
 
     return NULL;
 }
 
-// Ineficiente?
 void* audio(void* arg) {
     int id = *((int*)arg);
     AudioTrack* track = track_list[id];
-    sleep((rand() % 3) * id);
+
+    printf("[Audio %d] Iniciado. BPM Inicial: %d. Indo dormir...\n", id, track->bpm);
+
+    int bpm_anterior = track->bpm;
+
     play_track(track);
+
     while (run) {
-        // Lock usado só para reler após atualização
         pthread_mutex_lock(&track->lock);
         {
-            while (!track->updated) {                           // Espera continuada evita acordar sem sinal
-                pthread_cond_wait(&track->cond, &track->lock);  // Variável de condição acordou a thread e retomou o lock automaticamente.
+            printf("[Audio %d] Aguardando broadcast...\n", id);
+            while (track->bpm == bpm_anterior && run) {
+                pthread_cond_wait(&track->cond, &track->lock);
             }
-            track->updated = 0;
+            bpm_anterior = track->bpm;
+            printf("[Audio %d] Novo BPM detectado: %d\n", id, track->bpm);
         }
         pthread_mutex_unlock(&track->lock);
 
-        play_track(track);  // Replay da música
+        play_track(track);
     }
 
     return NULL;
