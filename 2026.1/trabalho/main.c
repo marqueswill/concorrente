@@ -21,7 +21,7 @@ typedef struct AudioTrack {
     int bpm;
     int updated;
     pthread_mutex_t lock;
-    pthread_cond_t cond;
+    // pthread_cond_t cond;
 } AudioTrack;
 
 int N;
@@ -33,6 +33,7 @@ pthread_t* sync_threads;
 int* thread_ids;
 AudioTrack** track_list;
 TreeNode** tree;
+pthread_cond_t atualizar_tracks_cond = PTHREAD_COND_INITIALIZER;
 
 int run = 1;
 
@@ -89,21 +90,20 @@ void init_track_data() {
         track_ptr->bpm = (rand() % 60) + 60;
 
         pthread_mutex_init(&(track_ptr->lock), NULL);
-        pthread_cond_init(&(track_ptr->cond), NULL);
+        // pthread_cond_init(&(track_ptr->cond), NULL);
 
         track_list[i] = track_ptr;
     }
     printf("[Main] Dados das faixas de áudio inicializados.\n");
 }
 
-void broadcast_bpm(int track_id, int new_bpm) {
+void atulizar_bpm_recursivo(int track_id, int new_bpm) {
     AudioTrack* track = track_list[track_id];
 
     pthread_mutex_lock(&track->lock);
     {
         track->bpm = new_bpm;
-        printf("[Broadcast] Atualizando Track %d para %d BPM e enviando sinal.\n", track_id, new_bpm);
-        pthread_cond_signal(&track->cond);
+        printf("[Recursao] Atualizando Track %d para %d BPM e enviando sinal.\n", track_id, new_bpm);
     }
     pthread_mutex_unlock(&track->lock);
 
@@ -111,11 +111,11 @@ void broadcast_bpm(int track_id, int new_bpm) {
     int right_idx = 2 * track_id + 2;
 
     if (left_idx < NODES) {
-        broadcast_bpm(left_idx, new_bpm);
+        atulizar_bpm_recursivo(left_idx, new_bpm);
     }
 
     if (right_idx < NODES) {
-        broadcast_bpm(right_idx, new_bpm);
+        atulizar_bpm_recursivo(right_idx, new_bpm);
     }
 }
 
@@ -195,9 +195,9 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < NODES; i++) {
         pthread_mutex_destroy(&(track_list[i]->lock));
-        pthread_cond_destroy(&(track_list[i]->cond));
         free(track_list[i]);
     }
+    pthread_cond_destroy(&atualizar_tracks_cond);
 
     printf("[Main] Programa finalizado com sucesso.\n");
     return 0;
@@ -225,7 +225,8 @@ void* cantor(void* arg) {
             printf("[Cantor %d] Calculou novo BPM: %d (Esq: %d, Dir: %d)\n", id, newBPM, left_track->bpm, right_track->bpm);
 
             sleep((rand() % 5) + 5);  // Delay para conseguir ouvir sincronizandos, quando mais proximo da raiz mais lento
-            broadcast_bpm(id, newBPM);
+            atulizar_bpm_recursivo(id, newBPM);
+            pthread_cond_broadcast(&atualizar_tracks_cond);
             if (!node->is_root) {
                 printf("[Cantor %d] É INTERMEDIÁRIO. Sincronização parcial alcançada. Agora esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
                 pthread_barrier_wait(&node->parent->barrier);
@@ -266,7 +267,7 @@ void* audio(void* arg) {
         {
             printf("[Audio %d] Aguardando broadcast...\n", id);
             while (track->bpm == bpm_anterior && run) {
-                pthread_cond_wait(&track->cond, &track->lock);
+                pthread_cond_wait(&atualizar_tracks_cond, &track->lock);
             }
             bpm_anterior = track->bpm;
             printf("[Audio %d] Novo BPM detectado: %d\n", id, track->bpm);
