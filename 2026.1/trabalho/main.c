@@ -86,7 +86,7 @@ void init_track_data() {
     for (int i = 0; i < NODES; i++) {
         AudioTrack* track_ptr = malloc(sizeof(AudioTrack));
         track_ptr->id = i;
-        track_ptr->bpm = (rand() % 200) + 1;
+        track_ptr->bpm = (rand() % 60) + 60;
 
         pthread_mutex_init(&(track_ptr->lock), NULL);
         pthread_cond_init(&(track_ptr->cond), NULL);
@@ -120,11 +120,11 @@ void broadcast_bpm(int track_id, int new_bpm) {
 }
 
 void play_track(AudioTrack* track) {
-    int target_audio = 0;
+    // int target_audio = track->id;
+    int target_audio = 1;
+
     float speed = (float)track->bpm / 100.0f;
-    if (speed < 0.5f) {
-        speed = 0.5f;
-    }
+    speed = (speed < 0.5f) ? 0.5f : speed;
 
     char command[512];
 
@@ -142,6 +142,10 @@ void play_track(AudioTrack* track) {
              speed, target_audio, track->id);
 
     system(command);
+}
+
+int calculate_new_bpm(AudioTrack* left_track, AudioTrack* right_track) {
+    return (left_track->bpm + right_track->bpm) / 2;
 }
 
 int main(int argc, char* argv[]) {
@@ -215,13 +219,13 @@ void* cantor(void* arg) {
             printf("[Cantor %d] Barreira liberada! Vou calcular a média da minha subárvore.\n", id);
             AudioTrack* left_track = track_list[node->left->id];
             AudioTrack* right_track = track_list[node->right->id];
-            int newBPM = (left_track->bpm + right_track->bpm) / 2;
+
+            int newBPM = calculate_new_bpm(left_track, right_track);
 
             printf("[Cantor %d] Calculou novo BPM: %d (Esq: %d, Dir: %d)\n", id, newBPM, left_track->bpm, right_track->bpm);
 
-            sleep((rand() % 6) + node->id + N - node->level + 1);  // Delay para conseguir ouvir sincronizandos, quando mais proximo da raiz mais lento
+            sleep((rand() % 5) + 5);  // Delay para conseguir ouvir sincronizandos, quando mais proximo da raiz mais lento
             broadcast_bpm(id, newBPM);
-
             if (!node->is_root) {
                 printf("[Cantor %d] É INTERMEDIÁRIO. Sincronização parcial alcançada. Agora esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
                 pthread_barrier_wait(&node->parent->barrier);
