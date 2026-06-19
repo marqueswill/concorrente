@@ -120,8 +120,8 @@ void atulizar_bpm_recursivo(int track_id, int new_bpm) {
 }
 
 void play_track(AudioTrack* track) {
-    // int target_audio = track->id;
-    int target_audio = 1;
+    int target_audio = track->id;
+    // int target_audio = 1;
 
     float speed = (float)track->bpm / 100.0f;
     speed = (speed < 0.5f) ? 0.5f : speed;
