@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 600 /* Or higher */
+#define _XOPEN_SOURCE 600
 
 #include <pthread.h>
 #include <stdio.h>
@@ -21,7 +21,6 @@ typedef struct AudioTrack {
     int bpm;
     int updated;
     pthread_mutex_t lock;
-    // pthread_cond_t cond;
 } AudioTrack;
 
 int N;
@@ -33,12 +32,13 @@ pthread_t* sync_threads;
 int* thread_ids;
 AudioTrack** track_list;
 TreeNode** tree;
+
 pthread_cond_t atualizar_tracks_cond = PTHREAD_COND_INITIALIZER;
 
 int run = 1;
 
-void* cantor(void* arg);
-void* audio(void* arg);
+void* sync_thread(void* arg);
+void* audio_thread(void* arg);
 
 void build_tree() {
     for (int i = 0; i < NODES; i++) {
@@ -90,14 +90,13 @@ void init_track_data() {
         track_ptr->bpm = (rand() % 60) + 60;
 
         pthread_mutex_init(&(track_ptr->lock), NULL);
-        // pthread_cond_init(&(track_ptr->cond), NULL);
 
         track_list[i] = track_ptr;
     }
     printf("[Main] Dados das faixas de áudio inicializados.\n");
 }
 
-void atulizar_bpm_recursivo(int track_id, int new_bpm) {
+void atualizar_bpm_recursivo(int track_id, int new_bpm) {
     AudioTrack* track = track_list[track_id];
 
     pthread_mutex_lock(&track->lock);
@@ -111,11 +110,11 @@ void atulizar_bpm_recursivo(int track_id, int new_bpm) {
     int right_idx = 2 * track_id + 2;
 
     if (left_idx < NODES) {
-        atulizar_bpm_recursivo(left_idx, new_bpm);
+        atualizar_bpm_recursivo(left_idx, new_bpm);
     }
 
     if (right_idx < NODES) {
-        atulizar_bpm_recursivo(right_idx, new_bpm);
+        atualizar_bpm_recursivo(right_idx, new_bpm);
     }
 }
 
@@ -129,14 +128,10 @@ void play_track(AudioTrack* track) {
     char command[512];
 
     // 1. LER O PID E MATAR O PROCESSO ANTERIOR
-    // Tenta ler o arquivo com o PID exclusivo desta thread e matar apenas ele.
-    // Os "2>/dev/null" impedem que erros sujem o terminal na primeira vez que rodar (quando o PID ainda não existe).
     snprintf(command, sizeof(command), "kill $(cat /tmp/audio_thread_%d.pid 2>/dev/null) 2>/dev/null", track->id);
     system(command);
 
     // 2. TOCAR O ÁUDIO ÚNICO E SALVAR O NOVO PID
-    // Substitua "tracks/audio_unico.mp3" pelo nome real do seu arquivo.
-    // O comando "echo $! > /tmp/..." pega o PID do processo em background (&) e salva no txt.
     snprintf(command, sizeof(command),
              "ffplay -nodisp -autoexit -af atempo=%.2f tracks/audio%d.mp3 > /dev/null 2>&1 & echo $! > /tmp/audio_thread_%d.pid",
              speed, target_audio, track->id);
@@ -175,9 +170,8 @@ int main(int argc, char* argv[]) {
     printf("[Main] Iniciando criação das threads...\n");
     for (int i = 0; i < NODES; i++) {
         thread_ids[i] = i;
-        // ATENÇÃO: Descomentei a linha abaixo para evitar segfault no join
-        pthread_create(&sync_threads[i], NULL, cantor, &thread_ids[i]);
-        pthread_create(&audio_threads[i], NULL, audio, &thread_ids[i]);
+        pthread_create(&sync_threads[i], NULL, sync_thread, &thread_ids[i]);
+        pthread_create(&audio_threads[i], NULL, audio_thread, &thread_ids[i]);
     }
 
     printf("[Main] Aguardando finalização das threads\n");
@@ -203,47 +197,47 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-void* cantor(void* arg) {
+void* sync_thread(void* arg) {
     int id = *((int*)arg);
     TreeNode* node = tree[id];
     AudioTrack* track = track_list[id];
 
-    // printf("___________[Cantor %d] is_root = %d, is_leaf = %d\n", node->id, node->is_root, node->is_leaf);
-    printf("[Cantor %d] Iniciado. %s\n", id, node->is_leaf ? "É folha." : (node->is_root ? "É raiz." : "Nó intermediário."));
+    // printf("___________[Sync %d] is_root = %d, is_leaf = %d\n", node->id, node->is_root, node->is_leaf);
+    printf("[Sync %d] Iniciado. %s\n", id, node->is_leaf ? "É folha." : (node->is_root ? "É raiz." : "Nó intermediário."));
 
     while (run) {
         if (!node->is_leaf) {
-            printf("[Cantor %d] Esperando na PRÓPRIA barreira os filhos chegarem...\n", id);
+            printf("[Sync %d] Esperando na PRÓPRIA barreira os filhos chegarem...\n", id);
             int res = pthread_barrier_wait(&node->barrier);
 
-            printf("[Cantor %d] Barreira liberada! Vou calcular a média da minha subárvore.\n", id);
+            printf("[Sync %d] Barreira liberada! Vou calcular a média da minha subárvore.\n", id);
             AudioTrack* left_track = track_list[node->left->id];
             AudioTrack* right_track = track_list[node->right->id];
 
             int newBPM = calculate_new_bpm(left_track, right_track);
 
-            printf("[Cantor %d] Calculou novo BPM: %d (Esq: %d, Dir: %d)\n", id, newBPM, left_track->bpm, right_track->bpm);
+            printf("[Sync %d] Calculou novo BPM: %d (Esq: %d, Dir: %d)\n", id, newBPM, left_track->bpm, right_track->bpm);
 
             sleep((rand() % 5) + 5);  // Delay para conseguir ouvir sincronizandos, quando mais proximo da raiz mais lento
-            atulizar_bpm_recursivo(id, newBPM);
+            atualizar_bpm_recursivo(id, newBPM);
             pthread_cond_broadcast(&atualizar_tracks_cond);
+
             if (!node->is_root) {
-                printf("[Cantor %d] É INTERMEDIÁRIO. Sincronização parcial alcançada. Agora esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
-                pthread_barrier_wait(&node->parent->barrier);
-                printf("[Cantor %d] Passou da barreira do pai.\n", id);
+                printf("[Sync %d] É INTERMEDIÁRIO. Sincronização parcial alcançada. Agora esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
+                printf("[Sync %d] Passou da barreira do pai.\n", id);
             } else {
-                printf("[Cantor %d] É RAIZ. Sincronização completa alcançada.\n", id);
+                printf("[Sync %d] É RAIZ. Sincronização completa alcançada.\n", id);
             }
 
             break;
         }
 
         if (!node->is_root) {  // É apenas folha
-            printf("[Cantor %d] Esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
+            printf("[Sync %d] Esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
             pthread_barrier_wait(&node->parent->barrier);
-            printf("[Cantor %d] Passou da barreira do pai. Encerrando ciclo.\n", id);
+            printf("[Sync %d] Passou da barreira do pai. Encerrando ciclo.\n", id);
         } else {  // É folha e raiz
-            printf("[Cantor %d] É folha e raiz ao mesmo tempo (N=0). Não há com quem sincronizar. Encerrando.\n", id);
+            printf("[Sync %d] É folha e raiz ao mesmo tempo (N=0). Não há com quem sincronizar. Encerrando.\n", id);
         }
 
         break;
@@ -252,7 +246,7 @@ void* cantor(void* arg) {
     return NULL;
 }
 
-void* audio(void* arg) {
+void* audio_thread(void* arg) {
     int id = *((int*)arg);
     AudioTrack* track = track_list[id];
 
@@ -269,8 +263,8 @@ void* audio(void* arg) {
             while (track->bpm == bpm_anterior && run) {
                 pthread_cond_wait(&atualizar_tracks_cond, &track->lock);
             }
-            bpm_anterior = track->bpm;
             printf("[Audio %d] Novo BPM detectado: %d\n", id, track->bpm);
+            bpm_anterior = track->bpm;
         }
         pthread_mutex_unlock(&track->lock);
 
