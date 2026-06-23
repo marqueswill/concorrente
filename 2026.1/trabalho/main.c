@@ -4,6 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+typedef struct AudioTrack {
+    int id;
+    int bpm;
+    int updated;
+    pthread_mutex_t lock;
+} AudioTrack;
 
 typedef struct TreeNode {
     int id;
@@ -14,14 +20,10 @@ typedef struct TreeNode {
     struct TreeNode* left;
     struct TreeNode* right;
     pthread_barrier_t barrier;
-} TreeNode;
 
-typedef struct AudioTrack {
-    int id;
-    int bpm;
-    int updated;
-    pthread_mutex_t lock;
-} AudioTrack;
+    // Informações para thread de áudio
+    AudioTrack track;
+} TreeNode;
 
 int N;
 int LEAFS;
@@ -30,8 +32,9 @@ int NODES;
 pthread_t* audio_threads;
 pthread_t* sync_threads;
 int* thread_ids;
-AudioTrack** track_list;
 TreeNode** tree;
+
+// AudioTrack** track_list;
 
 pthread_cond_t atualizar_tracks_cond = PTHREAD_COND_INITIALIZER;
 
@@ -50,6 +53,12 @@ void build_tree() {
         node_ptr->parent = NULL;
         node_ptr->left = NULL;
         node_ptr->right = NULL;
+
+        // Dados da track
+        node_ptr->track.id = i;
+        node_ptr->track.bpm = (rand() % 60) + 60;
+        node_ptr->track.updated = 0;
+        pthread_mutex_init(&(node_ptr->track.lock), NULL);
 
         tree[i] = node_ptr;
     }
@@ -81,40 +90,30 @@ void build_tree() {
         pthread_barrier_init(&(node->barrier), NULL, node->is_leaf ? 1 : 3);
     }
     printf("[Main] Árvore construída. N=%d, NODES=%d, LEAFS=%d\n", N, NODES, LEAFS);
-}
-
-void init_track_data() {
-    for (int i = 0; i < NODES; i++) {
-        AudioTrack* track_ptr = malloc(sizeof(AudioTrack));
-        track_ptr->id = i;
-        track_ptr->bpm = (rand() % 60) + 60;
-
-        pthread_mutex_init(&(track_ptr->lock), NULL);
-
-        track_list[i] = track_ptr;
-    }
     printf("[Main] Dados das faixas de áudio inicializados.\n");
 }
 
-void atualizar_bpm_recursivo(int track_id, int new_bpm) {
-    AudioTrack* track = track_list[track_id];
+void atualizar_bpm_recursivo(TreeNode* node, int new_bpm) {
+    AudioTrack* track = &(node->track);
 
+    // Lock para evitar condição de corrida
     pthread_mutex_lock(&track->lock);
     {
         track->bpm = new_bpm;
-        printf("[Recursao] Atualizando Track %d para %d BPM e enviando sinal.\n", track_id, new_bpm);
+        track->updated = 1;
+        printf("[Recursao] Atualizando Track %d para %d BPM e enviando sinal.\n", track->id, new_bpm);
     }
     pthread_mutex_unlock(&track->lock);
 
-    int left_idx = 2 * track_id + 1;
-    int right_idx = 2 * track_id + 2;
+    int left_idx = 2 * track->id + 1;
+    int right_idx = 2 * track->id + 2;
 
     if (left_idx < NODES) {
-        atualizar_bpm_recursivo(left_idx, new_bpm);
+        atualizar_bpm_recursivo(node->left, new_bpm);
     }
 
     if (right_idx < NODES) {
-        atualizar_bpm_recursivo(right_idx, new_bpm);
+        atualizar_bpm_recursivo(node->right, new_bpm);
     }
 }
 
@@ -139,8 +138,14 @@ void play_track(AudioTrack* track) {
     system(command);
 }
 
-int calculate_new_bpm(AudioTrack* left_track, AudioTrack* right_track) {
-    return (left_track->bpm + right_track->bpm) / 2;
+int calculate_new_bpm(TreeNode* node) {
+    AudioTrack* left_track = &(node->left->track);
+    AudioTrack* right_track = &(node->right->track);
+    int newBPM = (left_track->bpm + right_track->bpm) / 2;
+
+    printf("[Sync %d] Calculou novo BPM: %d (Esq: %d, Dir: %d)\n", node->id, newBPM, left_track->bpm, right_track->bpm);
+
+    return newBPM;
 }
 
 int main(int argc, char* argv[]) {
@@ -161,11 +166,10 @@ int main(int argc, char* argv[]) {
     audio_threads = malloc(NODES * sizeof(pthread_t));
     sync_threads = malloc(NODES * sizeof(pthread_t));
     thread_ids = malloc(NODES * sizeof(int));
-    track_list = malloc(NODES * sizeof(AudioTrack*));
+
     tree = malloc(NODES * sizeof(TreeNode*));
 
     build_tree();
-    init_track_data();
 
     printf("[Main] Iniciando criação das threads...\n");
     for (int i = 0; i < NODES; i++) {
@@ -175,23 +179,31 @@ int main(int argc, char* argv[]) {
     }
 
     printf("[Main] Aguardando finalização das threads\n");
+
     for (int i = 0; i < NODES; i++) {
         pthread_join(sync_threads[i], NULL);
     }
+
+    sleep(60);  // continua reprodução por mais 60s dps da sincronização
+    run = 0;
+    pthread_cond_broadcast(&atualizar_tracks_cond);
 
     for (int i = 0; i < NODES; i++) {
         pthread_join(audio_threads[i], NULL);
     }
 
     for (int i = 0; i < NODES; i++) {
+        pthread_barrier_destroy(&(tree[i]->barrier));
+        pthread_mutex_destroy(&(tree[i]->track.lock));
         free(tree[i]);
     }
 
-    for (int i = 0; i < NODES; i++) {
-        pthread_mutex_destroy(&(track_list[i]->lock));
-        free(track_list[i]);
-    }
     pthread_cond_destroy(&atualizar_tracks_cond);
+
+    free(audio_threads);
+    free(sync_threads);
+    free(thread_ids);
+    free(tree);
 
     printf("[Main] Programa finalizado com sucesso.\n");
     return 0;
@@ -200,47 +212,41 @@ int main(int argc, char* argv[]) {
 void* sync_thread(void* arg) {
     int id = *((int*)arg);
     TreeNode* node = tree[id];
-    AudioTrack* track = track_list[id];
+    AudioTrack* track = &(node->track);
 
-    // printf("___________[Sync %d] is_root = %d, is_leaf = %d\n", node->id, node->is_root, node->is_leaf);
     printf("[Sync %d] Iniciado. %s\n", id, node->is_leaf ? "É folha." : (node->is_root ? "É raiz." : "Nó intermediário."));
 
-    while (run) {
-        if (!node->is_leaf) {
-            printf("[Sync %d] Esperando na PRÓPRIA barreira os filhos chegarem...\n", id);
-            int res = pthread_barrier_wait(&node->barrier);
+    // 1. CASO BASE: um único nó que é folha e raiz ao mesmo tempo
+    if (node->is_leaf && node->is_root) {
+        printf("[Sync %d] É folha e raiz ao mesmo tempo (N=0). Não há com quem sincronizar. Encerrando.\n", id);
+        return NULL;
+    }
 
-            printf("[Sync %d] Barreira liberada! Vou calcular a média da minha subárvore.\n", id);
-            AudioTrack* left_track = track_list[node->left->id];
-            AudioTrack* right_track = track_list[node->right->id];
+    // 2. SE FOR APENAS FOLHA
+    if (node->is_leaf) {
+        // Começa "sincronizado", acesso a barreira do pai imediamente
+        printf("[Sync %d] Esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
+        pthread_barrier_wait(&node->parent->barrier);
+        printf("[Sync %d] Passou da barreira do pai.\n", id);
+        return NULL;
+    }
 
-            int newBPM = calculate_new_bpm(left_track, right_track);
+    // 3. SE FOR INTERMEDIÁRIO OU RAIZ
+    printf("[Sync %d] Esperando na PRÓPRIA barreira os filhos chegarem...\n", id);
+    pthread_barrier_wait(&node->barrier);  // Espero na própria barreira
 
-            printf("[Sync %d] Calculou novo BPM: %d (Esq: %d, Dir: %d)\n", id, newBPM, left_track->bpm, right_track->bpm);
+    printf("[Sync %d] Barreira liberada! Vou calcular a média da minha subárvore.\n", id);
+    int newBPM = calculate_new_bpm(node);
 
-            sleep((rand() % 5) + 5);  // Delay para conseguir ouvir sincronizandos, quando mais proximo da raiz mais lento
-            atualizar_bpm_recursivo(id, newBPM);
-            pthread_cond_broadcast(&atualizar_tracks_cond);
+    atualizar_bpm_recursivo(node, newBPM);              // Primeiro propaga o BPM para toda subárvore
+    sleep(((N - node->level) * 2) + (rand() % 3) + 2);  // Delay para conseguir ouvir sincronizando (inversamente proporcional à altura)
+    pthread_cond_broadcast(&atualizar_tracks_cond);     // Faz proadcast para as thread de audio reiniciarem a reprodução
 
-            if (!node->is_root) {
-                printf("[Sync %d] É INTERMEDIÁRIO. Sincronização parcial alcançada. Agora esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
-                printf("[Sync %d] Passou da barreira do pai.\n", id);
-            } else {
-                printf("[Sync %d] É RAIZ. Sincronização completa alcançada.\n", id);
-            }
-
-            break;
-        }
-
-        if (!node->is_root) {  // É apenas folha
-            printf("[Sync %d] Esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
-            pthread_barrier_wait(&node->parent->barrier);
-            printf("[Sync %d] Passou da barreira do pai. Encerrando ciclo.\n", id);
-        } else {  // É folha e raiz
-            printf("[Sync %d] É folha e raiz ao mesmo tempo (N=0). Não há com quem sincronizar. Encerrando.\n", id);
-        }
-
-        break;
+    if (!node->is_root) {  // Se for nó intermediário, acesso a próxima barreira
+        printf("[Sync %d] Intermediário terminou. Esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
+        pthread_barrier_wait(&node->parent->barrier);
+    } else {  // Se for a raiz, acabou a sincronização
+        printf("[Sync %d] É RAIZ. Sincronização completa alcançada.\n", id);
     }
 
     return NULL;
@@ -248,27 +254,27 @@ void* sync_thread(void* arg) {
 
 void* audio_thread(void* arg) {
     int id = *((int*)arg);
-    AudioTrack* track = track_list[id];
+    TreeNode* node = tree[id];
+    AudioTrack* track = &(node->track);
 
     printf("[Audio %d] Iniciado. BPM Inicial: %d. Indo dormir...\n", id, track->bpm);
 
-    int bpm_anterior = track->bpm;
+    play_track(track);  // Play
 
-    play_track(track);
-
+    // A unica coisa que essa thread faz é reproduzir o áudio e reiniciar a reprodução caso o BPM mude
     while (run) {
-        pthread_mutex_lock(&track->lock);
+        pthread_mutex_lock(&track->lock);  // Lock para espera cotinuada
         {
             printf("[Audio %d] Aguardando broadcast...\n", id);
-            while (track->bpm == bpm_anterior && run) {
-                pthread_cond_wait(&atualizar_tracks_cond, &track->lock);
+            while (!track->updated && run) {                              // Loop necessário para simplificar broadcast
+                pthread_cond_wait(&atualizar_tracks_cond, &track->lock);  // Fica em espera até que ocorra uma nova atualização do BPM
             }
             printf("[Audio %d] Novo BPM detectado: %d\n", id, track->bpm);
-            bpm_anterior = track->bpm;
+            track->updated = 0;  // Flag para espera
         }
         pthread_mutex_unlock(&track->lock);
 
-        play_track(track);
+        play_track(track);  // Replay
     }
 
     return NULL;
