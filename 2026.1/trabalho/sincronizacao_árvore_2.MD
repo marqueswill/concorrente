@@ -2,8 +2,6 @@
 
 ## Introdução
 
-### Inspiração
-
 A inspiração para esse problema surgiu no algoritmo de merge sort que tem uma eficiência muito melhor se você utiliza processos de paralelismo para subdividir o problema em partes menores e processá-los simultâneamente. A ideia era fazer um problema que seguisse uma estrutura em árvore e que a sincronização ocorresse de baixo para cima (bottom-up), isso é, das folhas até as raízes.
 
 Outra inpiração foi o fato de que muitos problemas de concorrência são difícies de visualizar e abstrair mentalmente, então seria muito interessante se fosse possível ver essa sincronização ocorrendo ou, no caso desse exercícios, ouvir as sincronização. Na teoria musical, sincronia é um conceito muito associado à harmonia, como notas de um piano ou violão sendo tocadas juntas para produzir um acorde, ou instrumentos sendo tocados dentro de um ritmo e também vozes de um coro que precisam harmonizar entre si.

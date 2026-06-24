@@ -35,7 +35,7 @@ int* thread_ids;
 TreeNode** tree;
 
 // AudioTrack** track_list;
-
+pthread_barrier_t global_start_barrier;
 pthread_cond_t atualizar_tracks_cond = PTHREAD_COND_INITIALIZER;
 
 int run = 1;
@@ -166,8 +166,9 @@ int main(int argc, char* argv[]) {
     audio_threads = malloc(NODES * sizeof(pthread_t));
     sync_threads = malloc(NODES * sizeof(pthread_t));
     thread_ids = malloc(NODES * sizeof(int));
-
     tree = malloc(NODES * sizeof(TreeNode*));
+
+    pthread_barrier_init(&global_start_barrier, NULL, NODES * 2);
 
     build_tree();
 
@@ -183,7 +184,7 @@ int main(int argc, char* argv[]) {
         pthread_join(sync_threads[i], NULL);
     }
 
-    sleep(30);  // continua reprodução por mais 60s dps da sincronização
+    getchar();
     run = 0;
     pthread_cond_broadcast(&atualizar_tracks_cond);
 
@@ -220,6 +221,8 @@ void* sync_thread(void* arg) {
     TreeNode* node = tree[id];
     AudioTrack* track = &(node->track);
 
+    pthread_barrier_wait(&global_start_barrier);
+
     printf("[Sync %d] Iniciado. %s\n", id, node->is_leaf ? "É folha." : (node->is_root ? "É raiz." : "Nó intermediário."));
 
     // 1. CASO BASE: um único nó que é folha e raiz ao mesmo tempo
@@ -244,10 +247,10 @@ void* sync_thread(void* arg) {
     printf("[Sync %d] Barreira liberada! Vou calcular a média da minha subárvore.\n", id);
     int newBPM = calculate_new_bpm(node);
 
-    printf("[Sync %d] INICIANDO PROPAGAÇÃO\n", id);
-
-    atualizar_bpm_recursivo(node, newBPM);          // Primeiro propaga o BPM para toda subárvore
     sleep(((N - node->level) * 2) + (rand() % 5));  // Delay para conseguir ouvir sincronizando (inversamente proporcional à altura)
+
+    printf("[Sync %d] INICIANDO PROPAGAÇÃO\n", id);
+    atualizar_bpm_recursivo(node, newBPM);  // Primeiro propaga o BPM para toda subárvore
 
     printf("[Sync %d] ENVIANDO SINAL DE UPDATE\n", id);
     pthread_cond_broadcast(&atualizar_tracks_cond);  // Faz proadcast para as thread de audio reiniciarem a reprodução
@@ -269,7 +272,8 @@ void* audio_thread(void* arg) {
 
     printf("[Audio %d] Iniciado. BPM Inicial: %d. Indo dormir...\n", id, track->bpm);
 
-    play_track(track);  // Play
+    play_track(track);                            // Play
+    pthread_barrier_wait(&global_start_barrier);  // Barreira inicial para garantir que a reprodução começa antes da sincronização
 
     // A unica coisa que essa thread faz é reproduzir o áudio e reiniciar a reprodução caso o BPM mude
     while (run) {
