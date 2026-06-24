@@ -56,7 +56,7 @@ void build_tree() {
 
         // Dados da track
         node_ptr->track.id = i;
-        node_ptr->track.bpm = (rand() % 60) + 60;
+        node_ptr->track.bpm = (100 + rand() % 21);  // Varia de 80 até 120
         node_ptr->track.updated = 0;
         pthread_mutex_init(&(node_ptr->track.lock), NULL);
 
@@ -101,7 +101,7 @@ void atualizar_bpm_recursivo(TreeNode* node, int new_bpm) {
     {
         track->bpm = new_bpm;
         track->updated = 1;
-        printf("[Recursao] Atualizando Track %d para %d BPM e enviando sinal.\n", track->id, new_bpm);
+        printf("[Recursao] Atualizando Track %d para %d BPM.\n", track->id, new_bpm);
     }
     pthread_mutex_unlock(&track->lock);
 
@@ -119,7 +119,7 @@ void atualizar_bpm_recursivo(TreeNode* node, int new_bpm) {
 
 void play_track(AudioTrack* track) {
     int target_audio = track->id;
-    // int target_audio = 1;
+    // int target_audio = 200;
 
     float speed = (float)track->bpm / 100.0f;
     speed = (speed < 0.5f) ? 0.5f : speed;
@@ -174,17 +174,16 @@ int main(int argc, char* argv[]) {
     printf("[Main] Iniciando criação das threads...\n");
     for (int i = 0; i < NODES; i++) {
         thread_ids[i] = i;
-        pthread_create(&sync_threads[i], NULL, sync_thread, &thread_ids[i]);
         pthread_create(&audio_threads[i], NULL, audio_thread, &thread_ids[i]);
+        pthread_create(&sync_threads[i], NULL, sync_thread, &thread_ids[i]);
     }
 
     printf("[Main] Aguardando finalização das threads\n");
-
     for (int i = 0; i < NODES; i++) {
         pthread_join(sync_threads[i], NULL);
     }
 
-    sleep(60);  // continua reprodução por mais 60s dps da sincronização
+    sleep(30);  // continua reprodução por mais 60s dps da sincronização
     run = 0;
     pthread_cond_broadcast(&atualizar_tracks_cond);
 
@@ -199,6 +198,13 @@ int main(int argc, char* argv[]) {
     }
 
     pthread_cond_destroy(&atualizar_tracks_cond);
+
+    printf("[Main] Finalizando processos de áudio...\n");
+    for (int i = 0; i < NODES; i++) {
+        char command[128];
+        snprintf(command, sizeof(command), "kill $(cat /tmp/audio_thread_%d.pid 2>/dev/null) 2>/dev/null", tree[i]->track.id);
+        system(command);
+    }
 
     free(audio_threads);
     free(sync_threads);
@@ -224,10 +230,10 @@ void* sync_thread(void* arg) {
 
     // 2. SE FOR APENAS FOLHA
     if (node->is_leaf) {
-        // Começa "sincronizado", acesso a barreira do pai imediamente
+        // Começa "sincronizado", acesso a barreira do pai imediamente e que começa a propagação bottom-up
         printf("[Sync %d] Esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
         pthread_barrier_wait(&node->parent->barrier);
-        printf("[Sync %d] Passou da barreira do pai.\n", id);
+        // printf("[Sync %d] Passou da barreira do pai.\n", id);
         return NULL;
     }
 
@@ -238,9 +244,13 @@ void* sync_thread(void* arg) {
     printf("[Sync %d] Barreira liberada! Vou calcular a média da minha subárvore.\n", id);
     int newBPM = calculate_new_bpm(node);
 
-    atualizar_bpm_recursivo(node, newBPM);              // Primeiro propaga o BPM para toda subárvore
-    sleep(((N - node->level) * 2) + (rand() % 3) + 2);  // Delay para conseguir ouvir sincronizando (inversamente proporcional à altura)
-    pthread_cond_broadcast(&atualizar_tracks_cond);     // Faz proadcast para as thread de audio reiniciarem a reprodução
+    printf("[Sync %d] INICIANDO PROPAGAÇÃO\n", id);
+
+    atualizar_bpm_recursivo(node, newBPM);          // Primeiro propaga o BPM para toda subárvore
+    sleep(((N - node->level) * 2) + (rand() % 5));  // Delay para conseguir ouvir sincronizando (inversamente proporcional à altura)
+
+    printf("[Sync %d] ENVIANDO SINAL DE UPDATE\n", id);
+    pthread_cond_broadcast(&atualizar_tracks_cond);  // Faz proadcast para as thread de audio reiniciarem a reprodução
 
     if (!node->is_root) {  // Se for nó intermediário, acesso a próxima barreira
         printf("[Sync %d] Intermediário terminou. Esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
