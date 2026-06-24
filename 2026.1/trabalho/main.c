@@ -3,14 +3,16 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 typedef struct AudioTrack {
     int id;
     int bpm;
     int updated;
+    double accumulated_time;
+    struct timespec last_play_time;
     pthread_mutex_t lock;
 } AudioTrack;
-
 typedef struct TreeNode {
     int id;
     int is_root;
@@ -56,8 +58,10 @@ void build_tree() {
 
         // Dados da track
         node_ptr->track.id = i;
-        node_ptr->track.bpm = (100 + rand() % 21);  // Varia de 80 até 120
+        node_ptr->track.bpm = (80 + rand() % 41);  // Varia de 80 até 120
         node_ptr->track.updated = 0;
+        node_ptr->track.accumulated_time = 0.0;
+        clock_gettime(CLOCK_MONOTONIC, &(node_ptr->track.last_play_time));
         pthread_mutex_init(&(node_ptr->track.lock), NULL);
 
         tree[i] = node_ptr;
@@ -93,15 +97,15 @@ void build_tree() {
     printf("[Main] Dados das faixas de áudio inicializados.\n");
 }
 
-void atualizar_bpm_recursivo(TreeNode* node, int new_bpm) {
+void atualizar_bpm_recursivo(TreeNode* node, int new_bpm, double new_position) {
     AudioTrack* track = &(node->track);
 
-    // Lock para evitar condição de corrida
     pthread_mutex_lock(&track->lock);
     {
         track->bpm = new_bpm;
+        track->accumulated_time = new_position;
         track->updated = 1;
-        printf("[Recursao] Atualizando Track %d para %d BPM.\n", track->id, new_bpm);
+        printf("[Recursao] Atualizando Track %d para %d BPM a partir de %.2fs.\n", track->id, new_bpm, new_position);
     }
     pthread_mutex_unlock(&track->lock);
 
@@ -109,31 +113,31 @@ void atualizar_bpm_recursivo(TreeNode* node, int new_bpm) {
     int right_idx = 2 * track->id + 2;
 
     if (left_idx < NODES) {
-        atualizar_bpm_recursivo(node->left, new_bpm);
+        atualizar_bpm_recursivo(node->left, new_bpm, new_position);
     }
 
     if (right_idx < NODES) {
-        atualizar_bpm_recursivo(node->right, new_bpm);
+        atualizar_bpm_recursivo(node->right, new_bpm, new_position);
     }
 }
 
 void play_track(AudioTrack* track) {
     int target_audio = track->id;
-    // int target_audio = 200;
-
     float speed = (float)track->bpm / 100.0f;
     speed = (speed < 0.5f) ? 0.5f : speed;
 
     char command[512];
 
-    // 1. LER O PID E MATAR O PROCESSO ANTERIOR
     snprintf(command, sizeof(command), "kill $(cat /tmp/audio_thread_%d.pid 2>/dev/null) 2>/dev/null", track->id);
     system(command);
 
-    // 2. TOCAR O ÁUDIO ÚNICO E SALVAR O NOVO PID
+    // Registra o momento exato do play
+    clock_gettime(CLOCK_MONOTONIC, &track->last_play_time);
+
+    // Usa -ss para iniciar da posição acumulada
     snprintf(command, sizeof(command),
-             "ffplay -nodisp -autoexit -af atempo=%.2f tracks/audio%d.mp3 > /dev/null 2>&1 & echo $! > /tmp/audio_thread_%d.pid",
-             speed, target_audio, track->id);
+             "ffplay -nodisp -autoexit -ss %.2f -af atempo=%.2f tracks/audio%d.mp3 > /dev/null 2>&1 & echo $! > /tmp/audio_thread_%d.pid",
+             track->accumulated_time, speed, target_audio, track->id);
 
     system(command);
 }
@@ -216,6 +220,21 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
+double salvar_tempo_reproducao(TreeNode* node) {
+    pthread_mutex_lock(&node->track.lock);
+    {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        double elapsed_real = (now.tv_sec - node->track.last_play_time.tv_sec) +
+                              (now.tv_nsec - node->track.last_play_time.tv_nsec) / 1e9;
+        double speed = (float)node->track.bpm / 100.0f;
+        speed = (speed < 0.5f) ? 0.5f : speed;
+
+        double parent_position = node->track.accumulated_time + (elapsed_real * speed);
+    }
+    pthread_mutex_unlock(&node->track.lock);
+}
+
 void* sync_thread(void* arg) {
     int id = *((int*)arg);
     TreeNode* node = tree[id];
@@ -249,8 +268,10 @@ void* sync_thread(void* arg) {
 
     sleep(((N - node->level) * 2) + (rand() % 5));  // Delay para conseguir ouvir sincronizando (inversamente proporcional à altura)
 
+    
     printf("[Sync %d] INICIANDO PROPAGAÇÃO\n", id);
-    atualizar_bpm_recursivo(node, newBPM);  // Primeiro propaga o BPM para toda subárvore
+    double parent_position = salvar_tempo_reproducao(node);  // Salva o tempo de reprodução pro audio continuar de onde parou
+    atualizar_bpm_recursivo(node, newBPM, parent_position);  // Primeiro propaga o BPM para toda subárvore
 
     printf("[Sync %d] ENVIANDO SINAL DE UPDATE\n", id);
     pthread_cond_broadcast(&atualizar_tracks_cond);  // Faz proadcast para as thread de audio reiniciarem a reprodução
