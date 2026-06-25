@@ -124,7 +124,9 @@ void atualizar_bpm_recursivo(TreeNode* node, int new_bpm, double new_position) {
 }
 
 void play_track(AudioTrack* track) {
-    int target_audio = track->id;
+    // int target_audio = track->id;
+    int target_audio = 200;
+
     float speed = (float)track->bpm / 100.0f;
     speed = (speed < 0.5f) ? 0.5f : speed;
 
