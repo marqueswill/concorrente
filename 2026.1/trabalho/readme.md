@@ -5,6 +5,10 @@
 Nome: Willyan Marques de Melo
 Matrícula: 221020940
 
+## Links
+
+Link para o vídeo: https://youtu.be/hJf17JEyqvY
+Link para o repositório: https://github.com/marqueswill/concorrente
 
 ## Dependências
 
