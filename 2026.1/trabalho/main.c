@@ -144,9 +144,6 @@ void play_track(AudioTrack* track) {
     system(command);
 }
 
-int calculate_new_bpm(TreeNode* node) {
-}
-
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         printf("Uso: %s <altura_arvore>\n", argv[0]);
