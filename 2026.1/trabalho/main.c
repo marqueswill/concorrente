@@ -134,7 +134,7 @@ void play_track(AudioTrack* track) {
     if (target_audio_file != NULL) {
         snprintf(audio_path, sizeof(audio_path), "%s", target_audio_file);
     } else {
-        snprintf(audio_path, sizeof(audio_path), "./audio%d.mp3", track->id);
+        snprintf(audio_path, sizeof(audio_path), "./tracks/audio%d.mp3", track->id);
     }
 
     snprintf(command, sizeof(command), "kill $(cat /tmp/audio_thread_%d.pid 2>/dev/null) 2>/dev/null", track->id);
