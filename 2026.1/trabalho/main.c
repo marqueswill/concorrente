@@ -219,17 +219,19 @@ int main(int argc, char* argv[]) {
 
 double salvar_tempo_reproducao(TreeNode* node) {
     pthread_mutex_lock(&node->track.lock);
-    {
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        double elapsed_real = (now.tv_sec - node->track.last_play_time.tv_sec) +
-                              (now.tv_nsec - node->track.last_play_time.tv_nsec) / 1e9;
-        double speed = (float)node->track.bpm / 100.0f;
-        speed = (speed < 0.5f) ? 0.5f : speed;
 
-        double parent_position = node->track.accumulated_time + (elapsed_real * speed);
-    }
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    double elapsed_real = (now.tv_sec - node->track.last_play_time.tv_sec) +
+                          (now.tv_nsec - node->track.last_play_time.tv_nsec) / 1e9;
+    double speed = (float)node->track.bpm / 100.0f;
+    speed = (speed < 0.5f) ? 0.5f : speed;
+
+    double parent_position = node->track.accumulated_time + (elapsed_real * speed);
+
     pthread_mutex_unlock(&node->track.lock);
+
+    return parent_position;
 }
 
 void sincronizar_subarvore(TreeNode* node) {
