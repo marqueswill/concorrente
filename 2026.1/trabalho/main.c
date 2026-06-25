@@ -34,6 +34,7 @@ pthread_t* audio_threads;
 pthread_t* sync_threads;
 int* thread_ids;
 TreeNode** tree;
+char* target_audio_file = NULL;
 
 // AudioTrack** track_list;
 pthread_barrier_t global_start_barrier;
@@ -124,31 +125,33 @@ void atualizar_bpm_recursivo(TreeNode* node, int new_bpm, double new_position) {
 }
 
 void play_track(AudioTrack* track) {
-    // int target_audio = track->id;
-    int target_audio = 200;
-
     float speed = (float)track->bpm / 100.0f;
     speed = (speed < 0.5f) ? 0.5f : speed;
 
     char command[512];
+    char audio_path[256];
+
+    if (target_audio_file != NULL) {
+        snprintf(audio_path, sizeof(audio_path), "%s", target_audio_file);
+    } else {
+        snprintf(audio_path, sizeof(audio_path), "./tracks/audio%d.mp3", track->id);
+    }
 
     snprintf(command, sizeof(command), "kill $(cat /tmp/audio_thread_%d.pid 2>/dev/null) 2>/dev/null", track->id);
     system(command);
 
-    // Registra o momento exato do play
     clock_gettime(CLOCK_MONOTONIC, &track->last_play_time);
 
-    // Usa -ss para iniciar da posição acumulada
     snprintf(command, sizeof(command),
-             "ffplay -nodisp -autoexit -ss %.2f -af atempo=%.2f tracks/audio%d.mp3 > /dev/null 2>&1 & echo $! > /tmp/audio_thread_%d.pid",
-             track->accumulated_time, speed, target_audio, track->id);
+             "ffplay -nodisp -autoexit -ss %.2f -af atempo=%.2f %s > /dev/null 2>&1 & echo $! > /tmp/audio_thread_%d.pid",
+             track->accumulated_time, speed, audio_path, track->id);
 
     system(command);
 }
-
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        printf("Uso: %s <altura_arvore>\n", argv[0]);
+    // Permite 2 (sem arquivo) ou 3 (com arquivo) argumentos
+    if (argc < 2 || argc > 3) {
+        printf("Uso: %s <altura_arvore> [nome_arquivo]\n", argv[0]);
         return 1;
     }
 
@@ -157,6 +160,10 @@ int main(int argc, char* argv[]) {
     if (N < 0) {
         printf("Erro: N deve ser maior ou igual a zero.\n");
         return 1;
+    }
+
+    if (argc == 3) {
+        target_audio_file = argv[2];
     }
 
     LEAFS = 1 << N;
