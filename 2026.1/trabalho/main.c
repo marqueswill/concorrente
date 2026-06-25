@@ -6,25 +6,24 @@
 #include <time.h>
 #include <unistd.h>
 typedef struct AudioTrack {
-    int id;
-    int bpm;
-    int updated;
-    double accumulated_time;
-    struct timespec last_play_time;
-    pthread_mutex_t lock;
+    int id;                          // Identificador da thread
+    int bpm;                         // Velocidade de reprodução
+    int updated;                     // Flag para sincronização (espera continuada)
+    double accumulated_time;         // Duração que a faixa tocou
+    struct timespec last_play_time;  // Tempo em que a faixa começou a última reprodução
+    pthread_mutex_t lock;            // Lock para atualização dos dados
 } AudioTrack;
-typedef struct TreeNode {
-    int id;
-    int is_root;
-    int is_leaf;
-    int level;
-    struct TreeNode* parent;
-    struct TreeNode* left;
-    struct TreeNode* right;
-    pthread_barrier_t barrier;
 
-    // Informações para thread de áudio
-    AudioTrack track;
+typedef struct TreeNode {
+    int id;                     // Identificador da thread
+    int is_root;                // 1 é raiz, 0 não é raiz
+    int is_leaf;                // 1 é folha, 0 não é folha
+    int level;                  // Qual o nível/altura do nó
+    struct TreeNode* parent;    // Ponteiro para o pai (travessia bottom-up)
+    struct TreeNode* left;      // Ponteiro para o filho à esquerda
+    struct TreeNode* right;     // Ponteiro para o filho à direita
+    pthread_barrier_t barrier;  // Barreira para sincronização
+    AudioTrack track;           // Informações para thread de áudio
 } TreeNode;
 
 int N;
@@ -91,7 +90,10 @@ void build_tree() {
 
         node->is_root = i == 0;
         node->is_leaf = (left_idx >= NODES) || (right_idx >= NODES);
-        pthread_barrier_init(&(node->barrier), NULL, node->is_leaf ? 1 : 3);
+
+        if (!node->is_leaf) {
+            pthread_barrier_init(&(node->barrier), NULL, 3);
+        }
     }
     printf("[Main] Árvore construída. N=%d, NODES=%d, LEAFS=%d\n", N, NODES, LEAFS);
     printf("[Main] Dados das faixas de áudio inicializados.\n");
@@ -143,13 +145,6 @@ void play_track(AudioTrack* track) {
 }
 
 int calculate_new_bpm(TreeNode* node) {
-    AudioTrack* left_track = &(node->left->track);
-    AudioTrack* right_track = &(node->right->track);
-    int newBPM = (left_track->bpm + right_track->bpm) / 2;
-
-    printf("[Sync %d] Calculou novo BPM: %d (Esq: %d, Dir: %d)\n", node->id, newBPM, left_track->bpm, right_track->bpm);
-
-    return newBPM;
 }
 
 int main(int argc, char* argv[]) {
@@ -197,7 +192,9 @@ int main(int argc, char* argv[]) {
     }
 
     for (int i = 0; i < NODES; i++) {
-        pthread_barrier_destroy(&(tree[i]->barrier));
+        if (!tree[i]->is_leaf) {
+            pthread_barrier_destroy(&(tree[i]->barrier));
+        }
         pthread_mutex_destroy(&(tree[i]->track.lock));
         free(tree[i]);
     }
@@ -235,6 +232,18 @@ double salvar_tempo_reproducao(TreeNode* node) {
     pthread_mutex_unlock(&node->track.lock);
 }
 
+void sincronizar_subarvore(TreeNode* node) {
+    sleep(((N - node->level) * 2) + (rand() % 5));  // Delay para conseguir ouvir sincronizando (inversamente proporcional à altura)
+
+    AudioTrack* left_track = &(node->left->track);
+    AudioTrack* right_track = &(node->right->track);
+    int newBPM = (left_track->bpm + right_track->bpm) / 2;
+
+    printf("[Sync %d] INICIANDO SINCRONIZAÇÃO DO NOVO BPM: %d (Esq: %d, Dir: %d)\n", node->id, newBPM, left_track->bpm, right_track->bpm);
+    double parent_position = salvar_tempo_reproducao(node);  // Salva o tempo de reprodução pro audio continuar de onde parou
+    atualizar_bpm_recursivo(node, newBPM, parent_position);  // Primeiro propaga o BPM para toda subárvore
+}
+
 void* sync_thread(void* arg) {
     int id = *((int*)arg);
     TreeNode* node = tree[id];
@@ -255,27 +264,24 @@ void* sync_thread(void* arg) {
         // Começa "sincronizado", acesso a barreira do pai imediamente e que começa a propagação bottom-up
         printf("[Sync %d] Esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
         pthread_barrier_wait(&node->parent->barrier);
-        // printf("[Sync %d] Passou da barreira do pai.\n", id);
         return NULL;
     }
 
     // 3. SE FOR INTERMEDIÁRIO OU RAIZ
+
+    // Primeira fase (espera para sincronização)
     printf("[Sync %d] Esperando na PRÓPRIA barreira os filhos chegarem...\n", id);
     pthread_barrier_wait(&node->barrier);  // Espero na própria barreira
-
     printf("[Sync %d] Barreira liberada! Vou calcular a média da minha subárvore.\n", id);
-    int newBPM = calculate_new_bpm(node);
 
-    sleep(((N - node->level) * 2) + (rand() % 5));  // Delay para conseguir ouvir sincronizando (inversamente proporcional à altura)
+    // Segunda fase (cálculo do BPM e atualização da subárvore)
+    sincronizar_subarvore(node);
 
-    
-    printf("[Sync %d] INICIANDO PROPAGAÇÃO\n", id);
-    double parent_position = salvar_tempo_reproducao(node);  // Salva o tempo de reprodução pro audio continuar de onde parou
-    atualizar_bpm_recursivo(node, newBPM, parent_position);  // Primeiro propaga o BPM para toda subárvore
-
+    // Terceira fase (broadcast)
     printf("[Sync %d] ENVIANDO SINAL DE UPDATE\n", id);
     pthread_cond_broadcast(&atualizar_tracks_cond);  // Faz proadcast para as thread de audio reiniciarem a reprodução
 
+    // Última fase (verificação)
     if (!node->is_root) {  // Se for nó intermediário, acesso a próxima barreira
         printf("[Sync %d] Intermediário terminou. Esperando na barreira do pai (nó %d)...\n", id, node->parent->id);
         pthread_barrier_wait(&node->parent->barrier);
